@@ -1984,6 +1984,11 @@ export class Sim {
   private dealDamage(source: Entity | null, target: Entity, amount: number, crit: boolean, school: string, ability: string | null, kind: 'hit' | 'miss' | 'dodge', noRage = false, threatOpts?: { flat?: number; mult?: number }): void {
     if (target.dead) return;
     if (target.gm) return; // GM characters are invulnerable — every damage path funnels here
+    // A mob that broke leash (or a pet freed to the wild) is in 'evade': it has
+    // dropped its hate table and walks home without fighting back, healing to
+    // full only on arrival. Classic mechanics make it immune while it retreats,
+    // so it can't be chipped down — or killed outright — for a risk-free kill.
+    if (target.kind === 'mob' && target.aiState === 'evade') return;
     amount = Math.max(0, amount);
 
     // Defensive Stance, classic: deal 10% less, take 10% less (and +30% threat below)
