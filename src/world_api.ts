@@ -182,6 +182,10 @@ export interface IWorld {
   partyDecline(): void;
   partyLeave(): void;
   partyKick(targetPid: number): void;
+  // raid/target markers (party-scoped): markerId 0..7, null = no mark
+  markerFor(entityId: number): number | null;
+  setMarker(entityId: number, markerId: number): void;
+  clearMarker(entityId: number): void;
   tradeRequest(targetPid: number): void;
   tradeAccept(): void;
   tradeSetOffer(items: InvSlot[], copper: number): void;

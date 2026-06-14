@@ -23,6 +23,7 @@ import { buildWater, WaterView } from './water';
 import { buildClouds, buildSky, SkyView } from './sky';
 import { buildFoliage, FoliageView } from './foliage';
 import { shouldRenderStealthGhost } from './stealth';
+import { raidMarkerDataUrl } from '../ui/icons';
 
 const NAMEPLATE_RANGE = 55;
 // Entities further than this from the player are hidden entirely: their rigs
@@ -77,6 +78,7 @@ interface EntityView {
   hpBar: HTMLDivElement;
   hpFill: HTMLDivElement;
   markerEl: HTMLDivElement;
+  raidMarkEl: HTMLDivElement; // party raid/target marker, above the name
   sparkle?: THREE.Sprite; // ground objects
   objectMesh?: THREE.Object3D;
   portal?: THREE.Mesh; // dungeon door swirl
@@ -561,6 +563,9 @@ export class Renderer {
     // nameplate
     const np = document.createElement('div');
     np.className = 'nameplate';
+    const raidMark = document.createElement('div');
+    raidMark.className = 'np-raidmark';
+    raidMark.style.display = 'none';
     const marker = document.createElement('div');
     marker.className = 'np-marker';
     const nameEl = document.createElement('div');
@@ -571,7 +576,7 @@ export class Renderer {
     const hpFill = document.createElement('div');
     hpFill.className = 'np-hpfill';
     hpBar.appendChild(hpFill);
-    np.append(marker, nameEl, hpBar);
+    np.append(raidMark, marker, nameEl, hpBar);
     this.nameplateLayer.appendChild(np);
 
     // object views gate their own casters; character shadows live in visual
@@ -579,7 +584,7 @@ export class Renderer {
     if (!visual) collectCasters(group, objectCasters);
     this.views.set(e.id, {
       group, visual, sheepVisual: null, bearVisual: null, height, clickTarget,
-      nameplate: np, nameEl, hpBar, hpFill, markerEl: marker, sparkle, objectMesh, portal,
+      nameplate: np, nameEl, hpBar, hpFill, markerEl: marker, raidMarkEl: raidMark, sparkle, objectMesh, portal,
       objectCasters, shadowOn: true, isFar: false,
       lastX: e.pos.x, lastZ: e.pos.z,
       loco: newLocoTrack(),
@@ -1081,6 +1086,15 @@ export class Renderer {
       const sy = (-this.tmpV.y * 0.5 + 0.5) * h;
       v.nameplate.style.display = '';
       v.nameplate.style.transform = `translate(${sx.toFixed(0)}px, ${sy.toFixed(0)}px) translate(-50%, -100%)`;
+
+      // party raid/target marker (only mobs are markable, so this is null elsewhere)
+      const raidMark = this.sim.markerFor(e.id);
+      if (raidMark !== null) {
+        v.raidMarkEl.style.backgroundImage = `url(${raidMarkerDataUrl(raidMark)})`;
+        v.raidMarkEl.style.display = '';
+      } else {
+        v.raidMarkEl.style.display = 'none';
+      }
 
       if (e.kind === 'object') {
         // dungeon doorways announce themselves

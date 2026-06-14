@@ -319,6 +319,9 @@ export class Sim {
   partyByPid = new Map<number, number>(); // pid -> party id
   partyInvites = new Map<number, { fromPid: number; expires: number }>(); // invitee pid -> invite
   nextPartyId = 1;
+  // raid/target markers: partyId -> (enemy entityId -> markerId 0..7). A
+  // cosmetic, party-scoped overlay — never read by tick()/obs/persistence.
+  partyMarkers = new Map<number, Map<number, number>>();
   trades = new Map<number, TradeSession>(); // pid -> shared session (both pids point at it)
   tradeInvites = new Map<number, { fromPid: number; expires: number }>();
   duels = new Map<number, DuelState>(); // pid -> shared duel (both pids)
@@ -416,6 +419,7 @@ export class Sim {
   }
 
   private dropEntity(id: number): void {
+    this.clearEntityMarker(id); // a despawned entity keeps no raid marker
     const e = this.entities.get(id);
     if (!e) return;
     this.grid.remove(e);
@@ -1932,6 +1936,7 @@ export class Sim {
     target.lootable = false;
     target.wanderTarget = null;
     clearThreat(target);
+    this.clearEntityMarker(target.id); // a tamed pet is no longer a markable enemy
     // it's friendly now: nobody keeps swinging at it, other mobs forget it
     for (const other of this.players.values()) {
       const e = this.entities.get(other.entityId);
@@ -2242,6 +2247,10 @@ export class Sim {
     e.ccDr.clear();
     e.castingAbility = null;
     this.emit({ type: 'death', entityId: e.id, killerId: killer?.id ?? -1 });
+
+    // a dead mob keeps no raid marker — respawnMob reuses the same entity id,
+    // so a stale mark would otherwise reappear on the respawn
+    if (e.kind === 'mob') this.clearEntityMarker(e.id);
 
     // the dead drop off every hate table (and any taunt lock on them)
     for (const m of this.entities.values()) {
@@ -3683,6 +3692,7 @@ export class Sim {
         this.emit({ type: 'log', text: 'Your party has disbanded.', color: '#aaf', pid: mPid });
       }
       this.parties.delete(party.id);
+      this.partyMarkers.delete(party.id);
     } else if (party.leader === pid) {
       party.leader = party.members[0];
       const newLeader = this.players.get(party.leader);
@@ -3690,6 +3700,62 @@ export class Sim {
         this.emit({ type: 'log', text: `${newLeader?.name ?? 'Someone'} is now the party leader.`, color: '#aaf', pid: mPid });
       }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Raid markers (party-scoped target markers)
+  // -------------------------------------------------------------------------
+
+  // Every mark visible to the actor's party, as { entityId: markerId }. Empty
+  // when the actor is not in a party. Pure read — cleanup happens on the
+  // death/despawn/disband hooks, never here.
+  markersFor(pid: number): Record<number, number> {
+    const party = this.partyOf(pid);
+    if (!party) return {};
+    const marks = this.partyMarkers.get(party.id);
+    if (!marks) return {};
+    const out: Record<number, number> = {};
+    for (const [eid, mid] of marks) out[eid] = mid;
+    return out;
+  }
+
+  setMarker(entityId: number, markerId: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const party = this.partyOf(r.meta.entityId);
+    if (!party) { this.error(r.meta.entityId, 'You must be in a party to use raid markers.'); return; }
+    if (!Number.isInteger(markerId) || markerId < 0 || markerId > 7) return;
+    // markable: a live, wild, hostile mob (not players, NPCs, corpses, or pets)
+    const target = this.entities.get(entityId);
+    if (!target || target.kind !== 'mob' || target.dead || !target.hostile || target.ownerId !== null) return;
+    let marks = this.partyMarkers.get(party.id);
+    if (!marks) { marks = new Map(); this.partyMarkers.set(party.id, marks); }
+    // re-applying the same symbol to the same mob toggles it off
+    if (marks.get(entityId) === markerId) { marks.delete(entityId); return; }
+    // a symbol is unique within the party: take it off whatever held it
+    for (const [eid, mid] of marks) { if (mid === markerId) marks.delete(eid); }
+    marks.set(entityId, markerId);
+  }
+
+  clearMarker(entityId: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const party = this.partyOf(r.meta.entityId);
+    if (!party) return;
+    this.partyMarkers.get(party.id)?.delete(entityId);
+  }
+
+  // The local player's view of one entity's mark (for the renderer). Direct
+  // lookup, no per-call allocation.
+  markerFor(entityId: number): number | null {
+    const party = this.partyOf(this.primaryId);
+    if (!party) return null;
+    return this.partyMarkers.get(party.id)?.get(entityId) ?? null;
+  }
+
+  // Strip an entity's mark from every party — used when it dies or despawns.
+  private clearEntityMarker(entityId: number): void {
+    for (const marks of this.partyMarkers.values()) marks.delete(entityId);
   }
 
   // -------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import { terrainHeight, WATER_LEVEL, roadDistance } from '../sim/world';
 import { Meters } from './meters';
 import { audio } from '../game/audio';
 import { music } from '../game/music';
-import { iconDataUrl, QUALITY_COLOR } from './icons';
+import { iconDataUrl, QUALITY_COLOR, raidMarkerDataUrl, RAID_MARKER_NAMES } from './icons';
 import { Keybinds, BIND_ACTIONS, BIND_CATEGORIES, isReservedCode, keyLabel } from '../game/keybinds';
 import { Settings, GameSettings, SETTING_RANGES } from '../game/settings';
 import { chatPlayerContextActions } from './player_context_menu';
@@ -152,6 +152,11 @@ export class Hud {
       const t = tid !== null ? this.sim.entities.get(tid) : null;
       if (t && t.kind === 'player' && t.id !== this.sim.playerId) {
         this.openContextMenu(t.id, t.name, (ev as MouseEvent).clientX, (ev as MouseEvent).clientY);
+      } else if (t && t.kind === 'mob' && !t.dead && t.hostile && t.ownerId === null && this.sim.partyInfo) {
+        // classic WoW: right-click an enemy's unit frame to set a raid marker.
+        // Mirror Sim.setMarker's markable criteria (live wild hostile mob) so the
+        // menu never appears for a pet/non-hostile mob where it would be a no-op.
+        this.openMarkerMenu(t.id, t.name, (ev as MouseEvent).clientX, (ev as MouseEvent).clientY);
       }
     });
     $('#mm-char').addEventListener('click', () => this.toggleChar());
@@ -2330,6 +2335,34 @@ export class Hud {
           else this.toggleChatIgnore(name);
         } else if (act === 'report') this.openReportWindow({ pid, name });
         else if (act === 'kick') this.sim.partyKick(pid);
+      });
+    });
+  }
+
+  // Raid/target marker picker for an enemy, opened from its target unit frame.
+  // Party-only (markers are a coordination feature); shows the 8 symbols with a
+  // check on the one currently on this mob, plus Clear and Cancel.
+  openMarkerMenu(entityId: number, name: string, x: number, y: number): void {
+    if (!this.sim.partyInfo) return;
+    const el = $('#ctx-menu');
+    const current = this.sim.markerFor(entityId);
+    let html = `<div class="ctx-title">${esc(name)}</div>`;
+    for (let i = 0; i < RAID_MARKER_NAMES.length; i++) {
+      const check = current === i ? ' ✓' : '';
+      html += `<div class="ctx-item" data-act="m${i}"><span class="ctx-mark" style="background-image:url(${raidMarkerDataUrl(i)})"></span>${RAID_MARKER_NAMES[i]}${check}</div>`;
+    }
+    html += `<div class="ctx-item" data-act="clear">Clear Marker</div>`;
+    html += `<div class="ctx-item" data-act="close">Cancel</div>`;
+    el.innerHTML = html;
+    el.style.left = `${Math.min(window.innerWidth - 170, x)}px`;
+    el.style.top = `${Math.min(window.innerHeight - 340, y)}px`;
+    el.style.display = 'block';
+    el.querySelectorAll('.ctx-item').forEach((item) => {
+      item.addEventListener('click', () => {
+        const act = (item as HTMLElement).dataset.act;
+        el.style.display = 'none';
+        if (act === 'clear') this.sim.clearMarker(entityId);
+        else if (act && act.startsWith('m')) this.sim.setMarker(entityId, Number(act.slice(1)));
       });
     });
   }

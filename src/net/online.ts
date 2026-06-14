@@ -228,6 +228,7 @@ export class ClientWorld implements IWorld {
   socialInfo: SocialInfo | null = null;
   arenaInfo: ArenaInfo | null = null;
   marketInfo: MarketInfo | null = null;
+  markers: Record<number, number> = {}; // entityId -> markerId, mirrored from the self-wire
   realm = '';
   // bumped whenever a fresh social snapshot lands, so an open panel re-renders
   private socialDirty = false;
@@ -530,6 +531,7 @@ export class ClientWorld implements IWorld {
       if (s.qlog !== undefined || s.qdone !== undefined) this.pendingQuestCommands?.clear();
       this.known = abilitiesKnownAt(this.cfg.playerClass, e.level);
       if (s.party !== undefined) this.partyInfo = s.party;
+      if (s.marks !== undefined) this.markers = s.marks ?? {}; // null = cleared (no party/disband)
       if (s.trade !== undefined) this.tradeInfo = s.trade;
       if (s.duel !== undefined) this.duelInfo = s.duel;
       if (s.arena !== undefined) this.arenaInfo = s.arena;
@@ -653,6 +655,16 @@ export class ClientWorld implements IWorld {
   }
   partyKick(targetPid: number): void {
     this.cmd({ cmd: 'pkick', id: targetPid });
+  }
+  // raid/target markers
+  markerFor(entityId: number): number | null {
+    return this.markers[entityId] ?? null;
+  }
+  setMarker(entityId: number, markerId: number): void {
+    this.cmd({ cmd: 'setMarker', id: entityId, marker: markerId });
+  }
+  clearMarker(entityId: number): void {
+    this.cmd({ cmd: 'clearMarker', id: entityId });
   }
   tradeRequest(targetPid: number): void {
     this.cmd({ cmd: 'trade_req', id: targetPid });

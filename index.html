@@ -215,6 +215,12 @@
   .np-marker.ready { color: var(--gold); text-shadow: 0 0 6px #ffd10088, 1px 1px 2px #000; }
   .np-marker.active { color: #b9b9b9; }
   .np-marker.loot { color: var(--gold); font-size: 14px; }
+  /* party raid/target marker — floats above the name; display toggled in JS so
+     it reserves no vertical space when absent. Drop-shadow adds a dark halo on
+     top of the icon's baked outline for legibility against the bright world. */
+  .np-raidmark { width: 30px; height: 30px; margin: 0 auto 1px; background-size: contain;
+    background-repeat: no-repeat; background-position: center;
+    filter: drop-shadow(0 0 2px #000) drop-shadow(0 1px 1px #000); }
 
   /* ---------- chat bubbles (/say, /yell) ---------- */
   .chat-bubble { position: absolute; left: 0; top: 0; max-width: 220px; pointer-events: none;
@@ -1911,6 +1917,8 @@
   #ctx-menu .ctx-title { font-family: var(--title-font); color: var(--gold); font-size: 13px; padding: 3px 8px; border-bottom: 1px solid #463a1c; margin-bottom: 4px; }
   #ctx-menu .ctx-item { padding: 5px 10px; font-size: 12.5px; color: #e8d8a8; cursor: pointer; border-radius: 4px; }
   #ctx-menu .ctx-item:hover { background: #ffffff18; color: #fff; }
+  #ctx-menu .ctx-mark { display: inline-block; width: 18px; height: 18px; vertical-align: middle;
+    margin-right: 8px; background-size: contain; background-repeat: no-repeat; background-position: center; }
 
   /* ---------- prompts (invite/trade/duel) ---------- */
   #prompt-stack { position: absolute; left: 50%; top: 34%; transform: translateX(-50%); z-index: 80;
