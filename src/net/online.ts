@@ -1,6 +1,6 @@
 // Online play: REST auth client + WebSocket world mirror.
 
-import { NPCS, QUESTS, abilitiesKnownAt } from '../sim/data';
+import { NPCS, abilitiesKnownAt } from '../sim/data';
 import { computeQuestState, ResolvedAbility } from '../sim/sim';
 import {
   Entity, EquipSlot, InvSlot, MoveInput, PlayerClass, QuestProgress, QuestState, SimEvent,
@@ -238,6 +238,7 @@ export class ClientWorld implements IWorld {
   // inventory deltas arrive in snapshots, separate from the event frames the
   // HUD redraws on — the frame loop polls this so open panels re-render
   private invChanged = false;
+  private pendingQuestCommands = new Map<string, 'accept' | 'turnin'>();
   private mouselookFacing: number | null = null;
   private sendTimer: number | undefined;
 
@@ -305,8 +306,12 @@ export class ClientWorld implements IWorld {
     this.ws.send(JSON.stringify(msg));
   }
 
+  private canSendCommand(): boolean {
+    return this.connected && this.ws.readyState === WebSocket.OPEN;
+  }
+
   private cmd(payload: Record<string, unknown>): void {
-    if (!this.connected || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.canSendCommand()) return;
     this.ws.send(JSON.stringify({ t: 'cmd', ...payload }));
   }
 
@@ -492,6 +497,7 @@ export class ClientWorld implements IWorld {
       if (s.equip !== undefined) this.equipment = s.equip;
       if (s.qlog !== undefined) this.questLog = new Map((s.qlog as QuestProgress[]).map((q) => [q.questId, q]));
       if (s.qdone !== undefined) this.questsDone = new Set(s.qdone);
+      if (s.qlog !== undefined || s.qdone !== undefined) this.pendingQuestCommands?.clear();
       this.known = abilitiesKnownAt(this.cfg.playerClass, e.level);
       if (s.party !== undefined) this.partyInfo = s.party;
       if (s.trade !== undefined) this.tradeInfo = s.trade;
@@ -516,7 +522,12 @@ export class ClientWorld implements IWorld {
   // -----------------------------------------------------------------------
 
   questState(questId: string): QuestState {
-    return computeQuestState(questId, this.questLog, this.questsDone, this.player.level);
+    const state = computeQuestState(questId, this.questLog, this.questsDone, this.player.level);
+    const pending = this.pendingQuestCommands?.get(questId);
+    if ((pending === 'accept' && state === 'available') || (pending === 'turnin' && state === 'ready')) {
+      return 'active';
+    }
+    return state;
   }
 
   consumeInventoryChanged(): boolean {
@@ -561,21 +572,14 @@ export class ClientWorld implements IWorld {
   pickUpObject(id: number): void {
     this.cmd({ cmd: 'pickup', id });
   }
-  // Quest commands update local state optimistically so the dialog can't be
-  // re-used in the window before the next server snapshot lands. The server
-  // remains authoritative; the following snapshot overwrites this state.
   acceptQuest(questId: string): void {
-    const quest = QUESTS[questId];
-    if (quest && !this.questLog.has(questId) && !this.questsDone.has(questId)) {
-      this.questLog.set(questId, { questId, counts: quest.objectives.map(() => 0), state: 'active' });
-    }
+    if (!this.canSendCommand()) return;
+    this.pendingQuestCommands.set(questId, 'accept');
     this.cmd({ cmd: 'accept', quest: questId });
   }
   turnInQuest(questId: string): void {
-    if (this.questLog.get(questId)?.state === 'ready') {
-      this.questLog.delete(questId);
-      this.questsDone.add(questId);
-    }
+    if (!this.canSendCommand()) return;
+    this.pendingQuestCommands.set(questId, 'turnin');
     this.cmd({ cmd: 'turnin', quest: questId });
   }
   abandonQuest(questId: string): void {

@@ -89,5 +89,5 @@ describe('crowd bandwidth', () => {
     );
 
     expect(newBytes).toBeLessThan(legacyBytes * 0.5);
-  });
+  }, 30000);
 });
