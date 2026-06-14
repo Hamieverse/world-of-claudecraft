@@ -4,7 +4,7 @@ import type { IWorld } from '../world_api';
 import { groundHeight, WATER_LEVEL, zoneBiomeAt } from '../sim/world';
 import {
   MOBS, ABILITIES, DUNGEON_X_THRESHOLD, DUNGEON_LIST, QUESTS,
-  instanceOrigin, INSTANCE_SLOT_COUNT,
+  instanceOrigin, INSTANCE_SLOT_COUNT, ARENA_SLOT_COUNT, arenaOrigin, isArenaPos,
 } from '../sim/data';
 import type { BiomeId } from '../sim/types';
 import { AnimState, CharacterVisual, createCharacterVisual } from './characters';
@@ -144,6 +144,7 @@ export class Renderer {
   private lowGfx: boolean;
   private post: PostPipeline | null = null;
   private godRays: THREE.Sprite[] = [];
+  private viewport = { width: 1, height: 1 };
 
   constructor(private sim: IWorld, canvas: HTMLCanvasElement, nameplateLayer: HTMLDivElement) {
     this.nameplateLayer = nameplateLayer;
@@ -155,13 +156,14 @@ export class Renderer {
     initGfxTier(this.webgl); // software-GL autodetect needs the live context
     this.lowGfx = GFX.tier === 'low';
     const LOW_GFX = this.lowGfx;
+    this.viewport = this.measureViewport();
     this.webgl.setPixelRatio(Math.min(window.devicePixelRatio, GFX.pixelRatioCap));
-    this.webgl.setSize(window.innerWidth, window.innerHeight);
+    this.webgl.setSize(this.viewport.width, this.viewport.height, false);
     this.webgl.shadowMap.enabled = !LOW_GFX;
     this.webgl.shadowMap.type = THREE.PCFSoftShadowMap;
     this.webgl.toneMapping = THREE.ACESFilmicToneMapping; // OutputPass reads this on the composer path
     this.webgl.toneMappingExposure = this.baseExposure;
-    this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 950);
+    this.camera = new THREE.PerspectiveCamera(60, this.viewport.width / this.viewport.height, 0.1, 950);
 
     this.scene.fog = new THREE.Fog(0xa6c6e0, 130, 470);
 
@@ -332,25 +334,47 @@ export class Renderer {
     for (const e of sim.entities.values()) this.createView(e);
 
     // post chain (bloom + grade, GTAO on ultra); low renders direct
-    if (GFX.composer) this.post = buildComposer(this.webgl, this.scene, this.camera);
+    if (GFX.composer) this.post = buildComposer(this.webgl, this.scene, this.camera, this.viewport.width, this.viewport.height);
 
-    window.addEventListener('resize', () => {
-      this.camera.aspect = window.innerWidth / window.innerHeight;
-      this.camera.updateProjectionMatrix();
-      this.applyResolution();
+    const resize = () => this.resizeViewport();
+    window.addEventListener('resize', resize);
+    window.addEventListener('orientationchange', () => {
+      resize();
+      window.setTimeout(resize, 250);
+      window.setTimeout(resize, 800);
     });
+    window.visualViewport?.addEventListener('resize', resize);
+    window.visualViewport?.addEventListener('scroll', resize);
+    document.addEventListener('fullscreenchange', resize);
+  }
+
+  private measureViewport(): { width: number; height: number } {
+    const rect = this.webgl.domElement.getBoundingClientRect();
+    const stableMobileGameViewport = document.body.classList.contains('game-active') && document.body.classList.contains('mobile-touch');
+    const vv = stableMobileGameViewport ? null : window.visualViewport;
+    const width = Math.round(stableMobileGameViewport ? (rect.width || window.innerWidth) : (vv?.width ?? (rect.width || window.innerWidth)));
+    const height = Math.round(stableMobileGameViewport ? (rect.height || window.innerHeight) : (vv?.height ?? (rect.height || window.innerHeight)));
+    return { width: Math.max(1, width), height: Math.max(1, height) };
+  }
+
+  private resizeViewport(): void {
+    this.viewport = this.measureViewport();
+    this.camera.aspect = this.viewport.width / this.viewport.height;
+    this.camera.updateProjectionMatrix();
+    this.applyResolution();
   }
 
   // Push the current device pixel ratio (× renderScale, still capped by the
   // tier) to the renderer, composer, and vfx. Shared by resize and the
   // render-scale setting so a window resize never drops the chosen scale.
   private applyResolution(): void {
+    this.viewport = this.measureViewport();
     const ratio = Math.min(window.devicePixelRatio, GFX.pixelRatioCap) * this.renderScale;
     this.webgl.setPixelRatio(ratio);
-    this.webgl.setSize(window.innerWidth, window.innerHeight);
+    this.webgl.setSize(this.viewport.width, this.viewport.height, false);
     if (this.post) {
       this.post.composer.setPixelRatio(ratio);
-      this.post.setSize(window.innerWidth, window.innerHeight);
+      this.post.setSize(this.viewport.width, this.viewport.height);
     }
     this.vfx.setViewportScale(this.webgl.domElement.clientHeight * this.webgl.getPixelRatio(), 60);
   }
@@ -609,7 +633,19 @@ export class Renderer {
 
   private updateAmbience(px: number, camY: number, dt: number): void {
     const inside = px > DUNGEON_X_THRESHOLD;
-    if (inside) {
+    if (inside && isArenaPos(px)) {
+      // build the Ashen Coliseum copy the player was matched into
+      const pz = this.sim.player.pos.z;
+      for (let i = 0; i < ARENA_SLOT_COUNT; i++) {
+        const key = `arena:${i}`;
+        if (this.builtInteriors.has(key)) continue;
+        const o = arenaOrigin(i);
+        if (Math.abs(px - o.x) < 200 && Math.abs(pz - o.z) < 120) {
+          this.builtInteriors.add(key);
+          this.buildInterior('arena', o.x, o.z);
+        }
+      }
+    } else if (inside) {
       // build the interior copy the player is standing in
       for (const dungeon of DUNGEON_LIST) {
         for (let i = 0; i < INSTANCE_SLOT_COUNT; i++) {
@@ -708,6 +744,10 @@ export class Renderer {
   }
 
   sync(alpha: number, dt: number, renderFacingOverride: number | null): void {
+    const measured = this.measureViewport();
+    if (measured.width !== this.viewport.width || measured.height !== this.viewport.height) {
+      this.resizeViewport();
+    }
     this.time += dt;
     sharedUniforms.uTime.value = this.time;
     const sim = this.sim;
@@ -1007,7 +1047,7 @@ export class Renderer {
   private updateNameplates(): void {
     const sim = this.sim;
     const p = sim.player;
-    const w = window.innerWidth, h = window.innerHeight;
+    const { width: w, height: h } = this.viewport;
     for (const e of sim.entities.values()) {
       const v = this.views.get(e.id);
       if (!v) continue;
@@ -1098,7 +1138,7 @@ export class Renderer {
 
   private updateChatBubbles(): void {
     if (this.chatBubbles.size === 0) return;
-    const w = window.innerWidth, h = window.innerHeight;
+    const { width: w, height: h } = this.viewport;
     const now = performance.now();
     for (const [id, b] of this.chatBubbles) {
       const e = this.sim.entities.get(id);
@@ -1125,8 +1165,8 @@ export class Renderer {
 
   pick(clientX: number, clientY: number): number | null {
     const ndc = new THREE.Vector2(
-      (clientX / window.innerWidth) * 2 - 1,
-      -(clientY / window.innerHeight) * 2 + 1,
+      (clientX / this.viewport.width) * 2 - 1,
+      -(clientY / this.viewport.height) * 2 + 1,
     );
     this.raycaster.setFromCamera(ndc, this.camera);
     const hits = this.raycaster.intersectObjects(this.clickTargets, true);
@@ -1157,8 +1197,8 @@ export class Renderer {
       this.tmpV.y += v.height * e.scale * 0.5;
       this.tmpV.project(this.camera);
       if (this.tmpV.z > 1) continue;
-      const sx = (this.tmpV.x * 0.5 + 0.5) * window.innerWidth;
-      const sy = (-this.tmpV.y * 0.5 + 0.5) * window.innerHeight;
+      const sx = (this.tmpV.x * 0.5 + 0.5) * this.viewport.width;
+      const sy = (-this.tmpV.y * 0.5 + 0.5) * this.viewport.height;
       const d = Math.hypot(sx - clientX, sy - clientY);
       if (d < bestD) {
         bestD = d;
@@ -1171,8 +1211,8 @@ export class Renderer {
   worldToScreen(x: number, y: number, z: number): { x: number; y: number; behind: boolean } {
     this.tmpV.set(x, y, z).project(this.camera);
     return {
-      x: (this.tmpV.x * 0.5 + 0.5) * window.innerWidth,
-      y: (-this.tmpV.y * 0.5 + 0.5) * window.innerHeight,
+      x: (this.tmpV.x * 0.5 + 0.5) * this.viewport.width,
+      y: (-this.tmpV.y * 0.5 + 0.5) * this.viewport.height,
       behind: this.tmpV.z > 1,
     };
   }

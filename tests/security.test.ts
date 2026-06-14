@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildWebSocketAuthMessage, buildWebSocketUrl } from '../src/net/online';
 import { Sim } from '../src/sim/sim';
-import { offensiveUsername, validCharName, validUsername } from '../server/auth';
+import { normalizeCharName, offensiveName, offensiveUsername, validCharName, validUsername } from '../server/auth';
 import { rateLimited, requestIp } from '../server/ratelimit';
 
 function fakeReq(headers: Record<string, string>, remoteAddress: string) {
@@ -146,6 +146,36 @@ describe('malformed websocket frames cannot crash the server', () => {
   });
 });
 
+describe('character name normalization', () => {
+  // The server is the authority: it must not trust the browser to strip
+  // whitespace. A direct API client could otherwise store padded names that
+  // then become un-befriendable (findCharacterByName won't match the typed,
+  // unpadded form).
+  it('trims surrounding whitespace and collapses interior runs', () => {
+    expect(normalizeCharName('  Bob  Smith ')).toBe('Bob Smith');
+    expect(normalizeCharName('Thrall')).toBe('Thrall');
+    expect(normalizeCharName('Bob \t Smith')).toBe('Bob Smith');
+  });
+
+  it('returns null for names that are invalid even after normalizing', () => {
+    expect(normalizeCharName('  ')).toBeNull();
+    expect(normalizeCharName('A')).toBeNull(); // too short
+    expect(normalizeCharName('123Adventurer')).toBeNull();
+    expect(normalizeCharName(42)).toBeNull();
+  });
+
+  it('preserves valid punctuation while normalizing whitespace', () => {
+    expect(normalizeCharName("  Kael'thas ")).toBe("Kael'thas");
+    expect(normalizeCharName('Rexxar-Misha')).toBe('Rexxar-Misha');
+  });
+
+  it('a normalized name always passes validCharName', () => {
+    const n = normalizeCharName('  Bob  Smith ');
+    expect(n).not.toBeNull();
+    expect(validCharName(n)).toBe(true);
+  });
+});
+
 describe('gm privilege boundaries', () => {
   it('normal character names cannot create reserved GM-style names', () => {
     expect(validCharName('GM01')).toBe(false);
@@ -186,6 +216,22 @@ describe('username censorship', () => {
     });
   });
 
+  it('rejects profanity detected by the built-in username filter', () => {
+    withUsernameBanlist({}, () => {
+      expect(offensiveName('fuuuck')).toBe(true);
+      expect(validUsername('fuuuck')).toBe(false);
+    });
+  });
+
+  it('rejects built-in policy-banned name terms and obvious variants', () => {
+    withUsernameBanlist({}, () => {
+      expect(validUsername('Hitler')).toBe(false);
+      expect(validUsername('H1tler')).toBe(false);
+      expect(validCharName('H i t l e r')).toBe(false);
+      expect(validCharName('Adolf')).toBe(true);
+    });
+  });
+
   it('can load banned username terms from a configured file', () => {
     const file = join(tmpdir(), `woc-banlist-${Date.now()}-${Math.random().toString(16).slice(2)}.txt`);
     writeFileSync(file, 'forbidden\n');
@@ -196,5 +242,25 @@ describe('username censorship', () => {
     } finally {
       rmSync(file, { force: true });
     }
+  });
+});
+
+describe('character name censorship', () => {
+  it('rejects profanity in character names', () => {
+    withUsernameBanlist({}, () => {
+      expect(validCharName('Fuuuck')).toBe(false);
+    });
+  });
+
+  it('normalizes separators before checking character names', () => {
+    withUsernameBanlist({ inline: 'biga' }, () => {
+      expect(validCharName('B I G A')).toBe(false);
+    });
+  });
+
+  it('applies configured banned username terms to character names too', () => {
+    withUsernameBanlist({ inline: 'gravecaller' }, () => {
+      expect(validCharName('Grave Caller')).toBe(false);
+    });
   });
 });

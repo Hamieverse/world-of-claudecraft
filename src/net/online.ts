@@ -1,12 +1,12 @@
 // Online play: REST auth client + WebSocket world mirror.
 
-import { NPCS, QUESTS, abilitiesKnownAt } from '../sim/data';
+import { NPCS, abilitiesKnownAt } from '../sim/data';
 import { computeQuestState, ResolvedAbility } from '../sim/sim';
 import {
   Entity, EquipSlot, InvSlot, MoveInput, PlayerClass, QuestProgress, QuestState, SimEvent,
   emptyMoveInput,
 } from '../sim/types';
-import type { CharacterSearchResult, DuelInfo, IWorld, PartyInfo, SocialInfo, TradeInfo } from '../world_api';
+import type { ArenaInfo, CharacterSearchResult, DuelInfo, IWorld, MarketInfo, PartyInfo, SocialInfo, TradeInfo } from '../world_api';
 
 // ---------------------------------------------------------------------------
 // REST
@@ -104,6 +104,20 @@ export class Api {
     return data;
   }
 
+  private async delete(path: string, body: unknown): Promise<any> {
+    const res = await fetch(this.base + path, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `request failed (${res.status})`);
+    return data;
+  }
+
   async register(username: string, password: string): Promise<void> {
     const data = await this.post('/api/register', { username, password });
     this.token = data.token;
@@ -130,12 +144,20 @@ export class Api {
     await this.post(`/api/characters/${characterId}/rename`, { name });
   }
 
+  async deleteCharacter(characterId: number, name: string): Promise<void> {
+    await this.delete(`/api/characters/${characterId}`, { name });
+  }
+
   async reportPlayer(reporterCharacterId: number, targetPid: number, reason: string, details: string): Promise<void> {
     await this.post('/api/reports', { reporterCharacterId, targetPid, reason, details });
   }
 
   async reportPlayerByName(reporterCharacterId: number, targetCharacterName: string, reason: string, details: string): Promise<void> {
     await this.post('/api/reports', { reporterCharacterId, targetCharacterName, reason, details });
+  }
+
+  async projectStats(): Promise<{ accounts_created: number; players_online: number; realm: string }> {
+    return this.get('/api/project-stats');
   }
 }
 
@@ -147,6 +169,12 @@ function wrapAngle(d: number): number {
   while (d > Math.PI) d -= 2 * Math.PI;
   while (d < -Math.PI) d += 2 * Math.PI;
   return d;
+}
+
+function copyPos(dst: { x: number; y: number; z: number }, src: { x: number; y: number; z: number }): void {
+  dst.x = src.x;
+  dst.y = src.y;
+  dst.z = src.z;
 }
 
 function blankEntity(id: number): Entity {
@@ -191,6 +219,8 @@ export class ClientWorld implements IWorld {
   tradeInfo: TradeInfo | null = null;
   duelInfo: DuelInfo | null = null;
   socialInfo: SocialInfo | null = null;
+  arenaInfo: ArenaInfo | null = null;
+  marketInfo: MarketInfo | null = null;
   realm = '';
   // bumped whenever a fresh social snapshot lands, so an open panel re-renders
   private socialDirty = false;
@@ -210,6 +240,7 @@ export class ClientWorld implements IWorld {
   // inventory deltas arrive in snapshots, separate from the event frames the
   // HUD redraws on — the frame loop polls this so open panels re-render
   private invChanged = false;
+  private pendingQuestCommands = new Map<string, 'accept' | 'turnin'>();
   private mouselookFacing: number | null = null;
   private sendTimer: number | undefined;
 
@@ -277,8 +308,12 @@ export class ClientWorld implements IWorld {
     this.ws.send(JSON.stringify(msg));
   }
 
+  private canSendCommand(): boolean {
+    return this.connected && this.ws.readyState === WebSocket.OPEN;
+  }
+
   private cmd(payload: Record<string, unknown>): void {
-    if (!this.connected || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.canSendCommand()) return;
     this.ws.send(JSON.stringify({ t: 'cmd', ...payload }));
   }
 
@@ -349,7 +384,7 @@ export class ClientWorld implements IWorld {
         if (!hasIdentity) return null;
         e = blankEntity(w.id);
         e.pos = { x: w.x, y: w.y, z: w.z };
-        e.prevPos = { x: w.x, y: w.y, z: w.z };
+        copyPos(e.prevPos, e.pos);
         e.facing = w.f;
         e.prevFacing = w.f;
         this.entities.set(w.id, e);
@@ -393,11 +428,9 @@ export class ClientWorld implements IWorld {
         }
       }
       e.netUpdatedAt = now;
-      e.prevPos = {
-        x: e.prevPos.x + (e.pos.x - e.prevPos.x) * entAlpha,
-        y: e.prevPos.y + (e.pos.y - e.prevPos.y) * entAlpha,
-        z: e.prevPos.z + (e.pos.z - e.prevPos.z) * entAlpha,
-      };
+      e.prevPos.x = e.prevPos.x + (e.pos.x - e.prevPos.x) * entAlpha;
+      e.prevPos.y = e.prevPos.y + (e.pos.y - e.prevPos.y) * entAlpha;
+      e.prevPos.z = e.prevPos.z + (e.pos.z - e.prevPos.z) * entAlpha;
       e.prevFacing = e.prevFacing + wrapAngle(e.facing - e.prevFacing) * entFacingAlpha;
       e.pos.x = w.x; e.pos.y = w.y; e.pos.z = w.z;
       e.facing = w.f;
@@ -466,10 +499,13 @@ export class ClientWorld implements IWorld {
       if (s.equip !== undefined) this.equipment = s.equip;
       if (s.qlog !== undefined) this.questLog = new Map((s.qlog as QuestProgress[]).map((q) => [q.questId, q]));
       if (s.qdone !== undefined) this.questsDone = new Set(s.qdone);
+      if (s.qlog !== undefined || s.qdone !== undefined) this.pendingQuestCommands?.clear();
       this.known = abilitiesKnownAt(this.cfg.playerClass, e.level);
       if (s.party !== undefined) this.partyInfo = s.party;
       if (s.trade !== undefined) this.tradeInfo = s.trade;
       if (s.duel !== undefined) this.duelInfo = s.duel;
+      if (s.arena !== undefined) this.arenaInfo = s.arena;
+      if (s.market !== undefined) this.marketInfo = s.market;
       // camera follows server-side facing changes when not mouselooking
       if (prevSelfFacing !== undefined && this.mouselookFacing === null) {
         let d = e.facing - prevSelfFacing;
@@ -490,7 +526,12 @@ export class ClientWorld implements IWorld {
   // -----------------------------------------------------------------------
 
   questState(questId: string): QuestState {
-    return computeQuestState(questId, this.questLog, this.questsDone, this.player.level);
+    const state = computeQuestState(questId, this.questLog, this.questsDone, this.player.level);
+    const pending = this.pendingQuestCommands?.get(questId);
+    if ((pending === 'accept' && state === 'available') || (pending === 'turnin' && state === 'ready')) {
+      return 'active';
+    }
+    return state;
   }
 
   consumeInventoryChanged(): boolean {
@@ -535,21 +576,14 @@ export class ClientWorld implements IWorld {
   pickUpObject(id: number): void {
     this.cmd({ cmd: 'pickup', id });
   }
-  // Quest commands update local state optimistically so the dialog can't be
-  // re-used in the window before the next server snapshot lands. The server
-  // remains authoritative; the following snapshot overwrites this state.
   acceptQuest(questId: string): void {
-    const quest = QUESTS[questId];
-    if (quest && !this.questLog.has(questId) && !this.questsDone.has(questId)) {
-      this.questLog.set(questId, { questId, counts: quest.objectives.map(() => 0), state: 'active' });
-    }
+    if (!this.canSendCommand()) return;
+    this.pendingQuestCommands.set(questId, 'accept');
     this.cmd({ cmd: 'accept', quest: questId });
   }
   turnInQuest(questId: string): void {
-    if (this.questLog.get(questId)?.state === 'ready') {
-      this.questLog.delete(questId);
-      this.questsDone.add(questId);
-    }
+    if (!this.canSendCommand()) return;
+    this.pendingQuestCommands.set(questId, 'turnin');
     this.cmd({ cmd: 'turnin', quest: questId });
   }
   abandonQuest(questId: string): void {
@@ -638,6 +672,24 @@ export class ClientWorld implements IWorld {
     } catch {
       return [];
     }
+  }
+  arenaQueueJoin(): void {
+    this.cmd({ cmd: 'arena_queue' });
+  }
+  arenaQueueLeave(): void {
+    this.cmd({ cmd: 'arena_leave' });
+  }
+  marketList(itemId: string, count: number, price: number): void {
+    this.cmd({ cmd: 'market_list', item: itemId, count, price });
+  }
+  marketBuy(listingId: number): void {
+    this.cmd({ cmd: 'market_buy', id: listingId });
+  }
+  marketCancel(listingId: number): void {
+    this.cmd({ cmd: 'market_cancel', id: listingId });
+  }
+  marketCollect(): void {
+    this.cmd({ cmd: 'market_collect' });
   }
   enterDungeon(dungeonId: string): void {
     this.cmd({ cmd: 'enter_dungeon', dungeon: dungeonId });

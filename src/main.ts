@@ -3,6 +3,7 @@ import { Renderer } from './render/renderer';
 import { Input } from './game/input';
 import { Keybinds } from './game/keybinds';
 import { Settings, GameSettings } from './game/settings';
+import { MobileControls, PHONE_TOUCH_QUERY, isPhoneTouchDevice } from './game/mobile_controls';
 import { Hud } from './ui/hud';
 import { audio } from './game/audio';
 import { music } from './game/music';
@@ -15,11 +16,198 @@ import { DT, INTERACT_RANGE, PlayerClass, dist2d } from './sim/types';
 import { togglePasswordVisibility, syncInputAriaState, validateForm, handleKeyboardActivation, validateCharacterName } from './ui/auth_utils';
 import { CLASSES, ABILITIES } from './sim/content/classes';
 import { iconDataUrl } from './ui/icons';
+import { getLanguage, setLanguage, t, SupportedLanguage } from './ui/i18n';
 
 
 const WORLD_SEED = 20061; // fixed: World of Claudecraft is a persistent place
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => document.querySelector(sel) as T;
+let pendingDeleteCharacter: CharacterSummary | null = null;
+
+function syncAppViewport(): void {
+  const useStableGameViewport = document.body.classList.contains('game-active') && isPhoneTouchDevice();
+  const width = Math.max(1, Math.round(useStableGameViewport ? window.innerWidth : (window.visualViewport?.width ?? window.innerWidth)));
+  const height = Math.max(1, Math.round(useStableGameViewport ? window.innerHeight : (window.visualViewport?.height ?? window.innerHeight)));
+  document.documentElement.style.setProperty('--app-vw', `${width}px`);
+  document.documentElement.style.setProperty('--app-vh', `${height}px`);
+}
+
+function preventMobileZoom(): void {
+  let lastTouchEnd = 0;
+  const prevent = (e: Event) => e.preventDefault();
+  document.addEventListener('gesturestart', prevent, { passive: false });
+  document.addEventListener('gesturechange', prevent, { passive: false });
+  document.addEventListener('gestureend', prevent, { passive: false });
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 320) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive: false });
+}
+
+function syncPhoneTouchClass(): void {
+  document.body.classList.toggle('mobile-touch', isPhoneTouchDevice());
+}
+
+syncAppViewport();
+preventMobileZoom();
+syncPhoneTouchClass();
+window.matchMedia(PHONE_TOUCH_QUERY).addEventListener?.('change', syncPhoneTouchClass);
+window.addEventListener('resize', syncAppViewport);
+window.addEventListener('orientationchange', () => {
+  syncAppViewport();
+  window.setTimeout(syncAppViewport, 250);
+  window.setTimeout(syncAppViewport, 800);
+});
+window.visualViewport?.addEventListener('resize', syncAppViewport);
+window.visualViewport?.addEventListener('scroll', syncAppViewport);
+document.addEventListener('fullscreenchange', syncAppViewport);
+
+function requestMobileFullscreenLandscape(): void {
+  if (!isPhoneTouchDevice()) return;
+  const root = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
+  try {
+    const request = root.requestFullscreen?.bind(root) ?? root.webkitRequestFullscreen?.bind(root);
+    const result = request?.();
+    if (result && typeof (result as Promise<void>).catch === 'function') void (result as Promise<void>).catch(() => {});
+  } catch { /* browser declined fullscreen */ }
+  try {
+    const orientation = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
+    void orientation.lock?.('landscape').catch(() => {});
+  } catch { /* browser declined orientation lock */ }
+}
+
+function mobilePlatform(): 'ios' | 'android' | 'other' {
+  const ua = navigator.userAgent;
+  const platform = navigator.platform;
+  if (/iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+  if (/Android/.test(ua)) return 'android';
+  return 'other';
+}
+
+function isStandaloneDisplay(): boolean {
+  return window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+}
+
+function mobilePreflightCopy(): { detail: string; steps: string[] } {
+  const standalone = isStandaloneDisplay();
+  const base = [
+    'Rotate your device to landscape before entering the world.',
+    'Mobile performance may be degraded. Close extra tabs and lower Render Quality if the game feels slow.',
+  ];
+  if (mobilePlatform() === 'ios') {
+    return {
+      detail: standalone
+        ? 'You are in home-screen fullscreen mode. Keep the device in landscape.'
+        : 'For true fullscreen on iPhone or iPad, install this page to your Home Screen first.',
+      steps: standalone
+        ? base
+        : [
+          'In Safari, tap Share, then Add to Home Screen.',
+          'Open World of Claudecraft from the new Home Screen icon.',
+          ...base,
+        ],
+    };
+  }
+  if (mobilePlatform() === 'android') {
+    return {
+      detail: standalone
+        ? 'You are in fullscreen app mode. Keep the device in landscape.'
+        : 'For fullscreen on Android, install this page or add it to your Home screen first.',
+      steps: standalone
+        ? base
+        : [
+          'In Chrome, tap the menu, then Install app or Add to Home screen.',
+          'Open World of Claudecraft from the new icon.',
+          ...base,
+        ],
+    };
+  }
+  return {
+    detail: standalone
+      ? 'Keep your device in landscape fullscreen.'
+      : 'Install or add this page to your Home screen for the best fullscreen mobile experience.',
+    steps: base,
+  };
+}
+
+function showMobilePreflightPrompt(): void {
+  if (!isPhoneTouchDevice()) return;
+  const prompt = document.getElementById('mobile-preflight') as HTMLElement | null;
+  const detail = document.getElementById('mobile-preflight-detail') as HTMLElement | null;
+  const steps = document.getElementById('mobile-preflight-steps') as HTMLOListElement | null;
+  const continueBtn = document.getElementById('mobile-preflight-continue') as HTMLButtonElement | null;
+  if (!prompt || !detail || !steps || !continueBtn) return;
+
+  const copy = mobilePreflightCopy();
+  detail.textContent = copy.detail;
+  steps.replaceChildren(...copy.steps.map((text) => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+
+  document.body.classList.add('mobile-preflight-open', 'mobile-touch');
+  prompt.style.display = 'flex';
+  prompt.classList.add('visible');
+  continueBtn.onclick = () => hideMobilePreflightPrompt();
+}
+
+function hideMobilePreflightPrompt(): void {
+  const prompt = document.getElementById('mobile-preflight') as HTMLElement | null;
+  prompt?.classList.remove('visible');
+  if (prompt) prompt.style.display = '';
+  document.body.classList.remove('mobile-preflight-open');
+}
+
+type FullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+};
+
+type FullscreenElement = HTMLElement & {
+  webkitRequestFullscreen?: () => Promise<void> | void;
+};
+
+function currentFullscreenElement(): Element | null {
+  const doc = document as FullscreenDocument;
+  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+}
+
+function requestBrowserFullscreen(): void {
+  if (currentFullscreenElement()) return;
+  const root = document.documentElement as FullscreenElement;
+  const request = root.requestFullscreen?.bind(root) ?? root.webkitRequestFullscreen?.bind(root);
+  if (!request) return;
+  try {
+    const result = request();
+    if (result instanceof Promise) void result.catch(() => {});
+  } catch {
+    // Browsers can reject fullscreen outside a direct user gesture.
+  }
+}
+
+function exitBrowserFullscreen(): void {
+  if (!currentFullscreenElement()) return;
+  const doc = document as FullscreenDocument;
+  try {
+    const result = document.exitFullscreen?.() ?? doc.webkitExitFullscreen?.();
+    if (result instanceof Promise) void result.catch(() => {});
+  } catch {
+    // Fullscreen exit can also reject while the document is changing state.
+  }
+}
+
+function requestPreferredFullscreen(): void {
+  if (isPhoneTouchDevice()) {
+    requestMobileFullscreenLandscape();
+    return;
+  }
+  if (new Settings().get('fullscreen') >= 0.5) requestBrowserFullscreen();
+}
 
 // ---------------------------------------------------------------------------
 // Loading screen (shown from "enter world" until the first frame renders)
@@ -70,6 +258,29 @@ function beginWorldEntry(): boolean {
   return true;
 }
 
+function enterLoadingState(statusText: string): void {
+  hideMobilePreflightPrompt();
+  showLoadingScreen(statusText);
+  $('#start-screen').style.display = 'none';
+}
+
+async function prepareWorldEntry(): Promise<boolean> {
+  if (hasBegunWorldEntry) return false;
+  requestPreferredFullscreen();
+  syncAppViewport();
+  window.setTimeout(syncAppViewport, 250);
+  window.setTimeout(syncAppViewport, 800);
+  return beginWorldEntry();
+}
+
+function mountGameUi(): void {
+  if (document.getElementById('ui')) return;
+  const template = document.getElementById('game-ui-template') as HTMLTemplateElement | null;
+  const startScreen = document.getElementById('start-screen');
+  if (!template || !startScreen) throw new Error('Game UI shell is missing.');
+  document.body.insertBefore(template.content.cloneNode(true), startScreen);
+}
+
 // ---------------------------------------------------------------------------
 // Shared game wiring (used by both offline sim and online world)
 // ---------------------------------------------------------------------------
@@ -78,11 +289,11 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   // Model/texture/HDRI fetches were kicked off at module import; the renderer
   // builds its scene synchronously, so everything must be resolved first.
   // The loading screen covers the gap — not a silent black screen.
-  showLoadingScreen('Loading world…');
+  enterLoadingState('Loading world…');
+  document.body.classList.add('game-active');
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
   }
-  $('#start-screen').style.display = 'none';
   try {
     await assetsReady((done, total) => setLoadingProgress(done, total));
   } catch (err) {
@@ -90,6 +301,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     return;
   }
   setLoadingStatus('Entering the world…');
+  mountGameUi();
 
   const canvas = $('#game-canvas') as unknown as HTMLCanvasElement;
   const nameplates = $('#nameplates') as HTMLDivElement;
@@ -109,6 +321,19 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   }
 
   const chatInput = $('#chat-input') as unknown as HTMLInputElement;
+  const recoverFromMobileKeyboard = (): void => {
+    document.body.classList.remove('mobile-chat-open');
+    syncAppViewport();
+    window.scrollTo(0, 0);
+    window.setTimeout(() => { syncAppViewport(); window.scrollTo(0, 0); }, 120);
+    window.setTimeout(() => { syncAppViewport(); window.scrollTo(0, 0); }, 450);
+  };
+  const closeChat = (): void => {
+    chatInput.value = '';
+    chatInput.style.display = 'none';
+    chatInput.blur();
+    recoverFromMobileKeyboard();
+  };
   function openChat(): void {
     chatInput.style.display = 'block';
     chatInput.focus();
@@ -118,14 +343,13 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     if (e.key === 'Enter') {
       const text = chatInput.value.trim();
       if (text) world.chat(text);
-      chatInput.value = '';
-      chatInput.style.display = 'none';
-      chatInput.blur();
+      closeChat();
     } else if (e.key === 'Escape') {
-      chatInput.value = '';
-      chatInput.style.display = 'none';
-      chatInput.blur();
+      closeChat();
     }
+  });
+  chatInput.addEventListener('blur', () => {
+    if (chatInput.style.display === 'none') recoverFromMobileKeyboard();
   });
 
   const input = new Input(canvas, {
@@ -144,6 +368,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
         case 'nameplates': renderer.showNameplates = !renderer.showNameplates; break;
         case 'meters': hud.toggleMeters(); break;
         case 'social': hud.toggleSocial(); break;
+        case 'arena': hud.toggleArena(); break;
         case 'chat': openChat(); break;
         case 'escape':
           // close the topmost panel; if nothing was open, open the game menu
@@ -155,6 +380,22 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   }, keybinds);
   input.camYaw = world.player.facing;
 
+  const mobileControls = new MobileControls(input, {
+    onAttackNearest: () => attackNearest(),
+    onTarget: () => world.tabTarget(),
+    onInteract: () => interactKey(),
+    onChat: () => openChat(),
+    onMenu: () => {
+      if (!hud.closeAll()) hud.toggleOptionsMenu();
+    },
+    onSocial: () => hud.toggleSocial(),
+    onArena: () => hud.toggleArena(),
+    onSpellbook: () => hud.toggleSpellbook(),
+    onMeters: () => hud.toggleMeters(),
+    onMap: () => hud.toggleMap(),
+  });
+  mobileControls.start();
+
   // apply a setting to its live subsystem (also used to apply all on startup)
   function applySetting(key: keyof GameSettings, value: number): void {
     const v = settings.set(key, value);
@@ -164,6 +405,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
       case 'musicVolume': music.setVolume(v); break;
       case 'brightness': renderer.setBrightness(v); break;
       case 'renderScale': renderer.setRenderScale(v); break;
+      case 'fullscreen': v >= 0.5 ? requestPreferredFullscreen() : exitBrowserFullscreen(); break;
     }
   }
   // apply persisted settings to the freshly-built subsystems
@@ -208,6 +450,20 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     hud.showError('Nothing to interact with.');
   }
 
+  function attackNearest(): void {
+    const p = world.player;
+    let best: number | null = null;
+    let bestD = 40;
+    for (const e of world.entities.values()) {
+      if (e.kind !== 'mob' || e.dead || !e.hostile) continue;
+      const d = dist2d(p.pos, e.pos);
+      if (d < bestD) { best = e.id; bestD = d; }
+    }
+    if (best === null) { hud.showError('No enemy nearby.'); return; }
+    world.targetEntity(best);
+    world.startAutoAttack();
+  }
+
   function handlePick(x: number, y: number, button: number): void {
     const id = renderer.pick(x, y);
     if (id === null) {
@@ -235,7 +491,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   }
 
   function updateCamera(frameDt: number, interpFacing: number): void {
-    if (!input.rightDown) {
+    if (!input.isMouselookActive()) {
       // follow turns 1:1 (keeps any manual orbit offset constant)
       if (lastInterpFacing !== null) input.camYaw += wrapAngle(interpFacing - lastInterpFacing);
       // settle behind the character while moving, unless the player is
@@ -257,8 +513,9 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     // freeze movement while the game menu is up so WASD doesn't walk the
     // character behind it (other windows stay non-modal, as before)
     input.suspendMovement = hud.isModalOpen();
+    input.updateTouchLook(frameDt);
 
-    const mouselook = input.rightDown && !world.player.dead;
+    const mouselook = input.isMouselookActive() && !world.player.dead;
 
     if (offlineSim) {
       acc += frameDt;
@@ -318,8 +575,9 @@ function sanitizeOfflineName(raw: string): string {
   return /^[A-Za-z][A-Za-z' -]{1,15}$/.test(stripped) ? stripped : 'Adventurer';
 }
 
-function startOffline(playerClass: PlayerClass, name: string): void {
-  if (!beginWorldEntry()) return;
+async function startOffline(playerClass: PlayerClass, name: string): Promise<void> {
+  if (!(await prepareWorldEntry())) return;
+  enterLoadingState('Loading world…');
   const sim = new Sim({ seed: WORLD_SEED, playerClass, playerName: name });
   void startGame(sim, sim, null);
 }
@@ -365,7 +623,99 @@ const hoverTimeouts: Record<string, number | null> = {
   'online-class-details': null
 };
 
+function switchMainView(targetId: string): void {
+  const views = ['#hero-view', '#highscores-view', '#wiki-view', '#news-view', '#download-view'];
+  const currentViewId = views.find(id => {
+    const el = $(id);
+    return el && !el.hasAttribute('hidden');
+  });
+
+  if (currentViewId === targetId) return;
+
+  const navMap: Record<string, string> = {
+    '#hero-view': 'nav-btn-play',
+    '#highscores-view': 'nav-btn-highscores',
+    '#wiki-view': 'nav-btn-wiki',
+    '#news-view': 'nav-btn-news',
+    '#download-view': 'nav-btn-download'
+  };
+
+  const activeNavId = navMap[targetId];
+  document.querySelectorAll('.nav-link').forEach((link) => {
+    const isActive = link.id === activeNavId;
+    link.classList.toggle('active', isActive);
+    link.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    link.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+
+  const fromView = currentViewId ? $(currentViewId) : null;
+  const toView = $(targetId);
+
+  if (!toView) return;
+
+  const isReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const performSwitch = () => {
+    views.forEach(id => {
+      const el = $(id);
+      if (el) {
+        const isTarget = id === targetId;
+        el.toggleAttribute('hidden', !isTarget);
+        el.setAttribute('aria-hidden', isTarget ? 'false' : 'true');
+      }
+    });
+
+    if (targetId === '#hero-view') {
+      const activePlayPanel = ['#charselect-panel', '#offline-select'].find(id => {
+        const el = $(id);
+        return el && !el.hasAttribute('hidden');
+      });
+      if (activePlayPanel) {
+        updatePreviewContainer(activePlayPanel);
+      }
+    }
+  };
+
+  if (isReducedMotion || !fromView) {
+    performSwitch();
+    return;
+  }
+
+  // Visual cross-fade and slide
+  fromView.style.opacity = '0';
+  fromView.style.transform = 'translateY(-8px)';
+
+  const handleTransitionEnd = () => {
+    performSwitch();
+    
+    toView.style.opacity = '0';
+    toView.style.transform = 'translateY(8px)';
+    
+    void toView.offsetHeight; // force reflow
+    
+    toView.style.opacity = '1';
+    toView.style.transform = 'translateY(0)';
+  };
+
+  window.setTimeout(handleTransitionEnd, 150);
+}
+
 function show(el: string): void {
+  // Ensure the main view is switched to hero-view so play sub-panels are visible
+  switchMainView('#hero-view');
+
+  const statsPanel = $('#project-stats-panel');
+  if (statsPanel) {
+    const shouldHideStats = el === '#charselect-panel' || el === '#offline-select';
+    statsPanel.toggleAttribute('hidden', shouldHideStats);
+  }
+
+  const logoImg = $('#title-logo');
+  if (logoImg) {
+    const shouldHideLogo = el === '#charselect-panel' || el === '#offline-select';
+    logoImg.toggleAttribute('hidden', shouldHideLogo);
+  }
+
   if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
     document.activeElement.blur();
   }
@@ -391,16 +741,7 @@ function show(el: string): void {
   }
 
   const panels = ['#mode-select', '#login-panel', '#realm-panel', '#charselect-panel', '#offline-select'];
-  const startScreen = $('#start-screen');
-
-  // Automatically close controls drawer if navigating away from mode-select
-  if (el !== '#mode-select') {
-    const closeBtn = $('#btn-close-controls') as HTMLButtonElement | null;
-    const controlsDrawer = $('#controls-drawer');
-    if (controlsDrawer && !controlsDrawer.hasAttribute('hidden') && closeBtn) {
-      closeBtn.click();
-    }
-  }
+  document.body.dataset.startPanel = el.slice(1);
 
   // Find currently visible panel
   const currentActiveId = panels.find(id => !$(id).hasAttribute('hidden'));
@@ -410,7 +751,6 @@ function show(el: string): void {
     for (const id of panels) {
       $(id).toggleAttribute('hidden', id !== el);
     }
-    $('#social-links')?.toggleAttribute('hidden', el !== '#mode-select');
     if (el === '#charselect-panel' || el === '#offline-select') {
       updatePreviewContainer(el);
     }
@@ -434,28 +774,18 @@ function show(el: string): void {
   if (isReducedMotion) {
     fromPanel.toggleAttribute('hidden', true);
     toPanel.toggleAttribute('hidden', false);
-    $('#social-links')?.toggleAttribute('hidden', el !== '#mode-select');
     if (el === '#charselect-panel' || el === '#offline-select') {
       updatePreviewContainer(el);
     }
     return;
   }
 
-  const socialLinks = $('#social-links');
-
   // Fade out using CSS classes
   fromPanel.classList.add('panel-transition', 'panel-fade-out');
-
-  if (el !== '#mode-select' && socialLinks && !socialLinks.hasAttribute('hidden')) {
-    socialLinks.classList.add('social-links-fade-out');
-  }
 
   const cleanupFrom = () => {
     fromPanel.toggleAttribute('hidden', true);
     fromPanel.classList.remove('panel-transition', 'panel-fade-out');
-    if (socialLinks) {
-      socialLinks.classList.remove('social-links-fade-out');
-    }
   };
 
   activeTransitionCleanup = cleanupFrom;
@@ -464,15 +794,6 @@ function show(el: string): void {
     cleanupFrom();
     activeTransitionCleanup = null;
     activeTransitionTimeout = null;
-
-    if (socialLinks) {
-      socialLinks.toggleAttribute('hidden', el !== '#mode-select');
-      if (el === '#mode-select') {
-        socialLinks.classList.add('social-links-fade-out');
-        void socialLinks.offsetHeight;
-        socialLinks.classList.remove('social-links-fade-out');
-      }
-    }
 
     // Set initial state for fade-in
     toPanel.classList.add('panel-transition', 'panel-fade-in-start');
@@ -545,7 +866,7 @@ function showRealmList(dir?: import('./net/online').RealmDirectory): void {
         <div><div class="realm-name">${r.name}${charTag}<span class="rn-rec" data-rec hidden>Recommended</span></div>
           <div class="realm-sub" data-sub>Checking status…</div></div>
         <div class="realm-type">${r.type}</div>
-        <div class="realm-pop offline" data-pop>—</div>
+        <div class="realm-pop offline" data-pop>-</div>
       </div>`;
     }).join('');
     listEl.querySelectorAll('.realm-row').forEach((row) => row.addEventListener('click', () => {
@@ -583,7 +904,47 @@ function selectRealm(entry: import('./net/online').RealmEntry): void {
   void refreshCharacters();
 }
 
+function setDeleteCharacterError(message: string): void {
+  $('#delete-character-error').textContent = message;
+}
+
+function closeDeleteCharacterDialog(): void {
+  pendingDeleteCharacter = null;
+  const modal = $('#delete-character-modal');
+  const input = $('#delete-character-confirm') as HTMLInputElement;
+  const confirmBtn = $('#btn-confirm-delete-character') as HTMLButtonElement;
+  modal.setAttribute('hidden', '');
+  input.value = '';
+  confirmBtn.disabled = true;
+  setDeleteCharacterError('');
+}
+
+function normalizeDeleteConfirmation(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function openDeleteCharacterDialog(character: CharacterSummary): void {
+  pendingDeleteCharacter = character;
+  const modal = $('#delete-character-modal');
+  const nameEl = $('#delete-character-name');
+  const input = $('#delete-character-confirm') as HTMLInputElement;
+  const confirmBtn = $('#btn-confirm-delete-character') as HTMLButtonElement;
+  nameEl.textContent = character.name;
+  input.value = '';
+  confirmBtn.disabled = true;
+  setDeleteCharacterError('');
+  modal.removeAttribute('hidden');
+  input.focus();
+}
+
 async function refreshCharacters(): Promise<void> {
+  const panel = $('#charselect-panel');
+  panel.dataset.mobileTab = 'characters';
+  document.querySelectorAll<HTMLButtonElement>('#charselect-panel .mobile-char-tab').forEach((btn) => {
+    const on = btn.dataset.charTab === 'characters';
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', String(on));
+  });
   const listEl = $('#char-list');
   listEl.innerHTML = '<li class="char-list-message">Loading…</li>';
   try {
@@ -603,8 +964,13 @@ async function refreshCharacters(): Promise<void> {
       row.innerHTML = `<span class="char-name">${c.name}</span>
         <span class="char-sub">Level ${c.level} ${c.class[0].toUpperCase()}${c.class.slice(1)}${c.online ? ' (in world)' : c.forceRename ? ' (rename required)' : ''}</span>
         ${c.forceRename
-          ? '<input class="rename-input" placeholder="New character name" maxlength="16" /><button class="btn rename-btn">Rename</button>'
-          : `<button class="btn" ${c.online ? 'disabled' : ''}>Enter World</button>`}`;
+          ? `<input class="rename-input" placeholder="New character name" maxlength="16" /><span class="char-actions"><button class="btn btn-danger delete-char-btn" ${c.online ? 'disabled' : ''}>Delete</button><button class="btn rename-btn">Rename</button></span>`
+          : `<span class="char-actions"><button class="btn btn-danger delete-char-btn" ${c.online ? 'disabled' : ''}>Delete</button><button class="btn enter-world-btn" ${c.online ? 'disabled' : ''}>Enter World</button></span>`}`;
+
+      row.querySelector('.delete-char-btn')!.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openDeleteCharacterDialog(c);
+      });
 
       if (c.forceRename) {
         const input = row.querySelector('.rename-input') as HTMLInputElement;
@@ -619,9 +985,9 @@ async function refreshCharacters(): Promise<void> {
           }
         });
       } else {
-        row.querySelector('button')!.addEventListener('click', (e) => {
+        row.querySelector('.enter-world-btn')!.addEventListener('click', (e) => {
           e.stopPropagation();
-          enterWorld(c);
+          void enterWorld(c, e.currentTarget as HTMLButtonElement);
         });
       }
 
@@ -679,11 +1045,22 @@ function fatalOverlay(message: string): void {
   document.body.appendChild(el);
 }
 
-function enterWorld(c: CharacterSummary): void {
-  if (!beginWorldEntry()) return;
-  audio.init();
-  music.init();
-  showLoadingScreen('Connecting to realm…');
+async function enterWorld(c: CharacterSummary, button?: HTMLButtonElement): Promise<void> {
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Entering...';
+    }
+    if (!(await prepareWorldEntry())) return;
+    audio.init();
+    music.init();
+    enterLoadingState('Connecting to realm…');
+  } finally {
+    if (!hasBegunWorldEntry && button) {
+      button.disabled = false;
+      button.textContent = 'Enter World';
+    }
+  }
   const world = new ClientWorld(api.token!, c.id, c.class, api.base);
   // wait for hello + first snapshot so the world starts populated
   const waitStart = Date.now();
@@ -1002,7 +1379,96 @@ function renderClassDetails(panelId: string, className: PlayerClass): void {
   }
 }
 
+const STATS_CACHE_KEY = 'woc_cached_stats';
+const STATS_CACHE_TTL_MS = 30000; // 30 seconds
+
+function translatePage(): void {
+  const lang = getLanguage();
+  document.documentElement.lang = lang;
+
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (key) {
+      el.textContent = t(key as any);
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-aria]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-aria');
+    if (key) {
+      el.setAttribute('aria-label', t(key as any));
+    }
+  });
+
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key) {
+      el.setAttribute('placeholder', t(key as any));
+    }
+  });
+}
+
+async function loadProjectStats(): Promise<void> {
+  const realmEl = $('#stat-realm-name');
+  const accountsEl = $('#stat-accounts-count');
+  const playersEl = $('#stat-players-online');
+
+  if (!realmEl || !accountsEl || !playersEl) return;
+
+  // 1. Try to read from localStorage first
+  let cached: { realm: string; accounts_created: number; players_online: number; timestamp: number } | null = null;
+  if (typeof localStorage !== 'undefined') {
+    const raw = localStorage.getItem(STATS_CACHE_KEY);
+    if (raw) {
+      try {
+        cached = JSON.parse(raw);
+      } catch {}
+    }
+  }
+
+  // If cache exists and is fresh (within TTL), use it and skip API request
+  if (cached && (Date.now() - cached.timestamp < STATS_CACHE_TTL_MS)) {
+    realmEl.textContent = cached.realm;
+    accountsEl.textContent = String(cached.accounts_created);
+    playersEl.textContent = String(cached.players_online);
+    return;
+  }
+
+  // 2. Fetch fresh stats
+  try {
+    const data = await api.projectStats();
+
+    realmEl.textContent = data.realm;
+    accountsEl.textContent = String(data.accounts_created);
+    playersEl.textContent = String(data.players_online);
+
+    // Save to cache with timestamp
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STATS_CACHE_KEY, JSON.stringify({
+        ...data,
+        timestamp: Date.now(),
+      }));
+    }
+  } catch (err) {
+    console.error('Failed to fetch project stats:', err);
+    // If API fails, fall back to cached data (even if expired)
+    if (cached) {
+      realmEl.textContent = `${cached.realm} (Offline)`;
+      accountsEl.textContent = String(cached.accounts_created);
+      playersEl.textContent = String(cached.players_online);
+    } else {
+      realmEl.textContent = 'Offline';
+      accountsEl.textContent = '-';
+      playersEl.textContent = '-';
+    }
+  }
+}
+
 function wireStartScreens(): void {
+  // Initial page translation and stats load
+  translatePage();
+  void loadProjectStats();
+
   // mode select
   const onlineBtn = $('#btn-online');
   const offlineBtn = $('#btn-offline');
@@ -1036,7 +1502,7 @@ function wireStartScreens(): void {
     audio.init();
     music.init();
     const name = sanitizeOfflineName(rawName);
-    startOffline(cls, name);
+    void startOffline(cls, name);
   };
 
   const handleOfflineSelect = () => {
@@ -1264,6 +1730,18 @@ function wireStartScreens(): void {
   });
   $('#btn-realm-back').addEventListener('click', () => show('#mode-select'));
   $('#btn-change-realm').addEventListener('click', () => showRealmList());
+  document.querySelectorAll<HTMLButtonElement>('#charselect-panel .mobile-char-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const panel = $('#charselect-panel');
+      const activeTab = tab.dataset.charTab === 'create' ? 'create' : 'characters';
+      panel.dataset.mobileTab = activeTab;
+      document.querySelectorAll<HTMLButtonElement>('#charselect-panel .mobile-char-tab').forEach((btn) => {
+        const on = btn.dataset.charTab === activeTab;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', String(on));
+      });
+    });
+  });
 
   // character creation
   document.querySelectorAll('#charselect-panel .mini-class').forEach((el) => {
@@ -1447,37 +1925,126 @@ function wireStartScreens(): void {
   });
   $('#btn-charselect-back').addEventListener('click', () => show('#login-panel'));
 
-  // Collapsible Controls Drawer toggle
-  const controlsDrawer = $('#controls-drawer');
-  const toggleControlsBtn = $('#btn-toggle-controls');
-  const closeControlsBtn = $('#btn-close-controls');
+  // Main Navigation View Switching
+  const navBtnPlay = $('#nav-btn-play');
+  const navBtnHighscores = $('#nav-btn-highscores');
+  const navBtnWiki = $('#nav-btn-wiki');
+  const navBtnNews = $('#nav-btn-news');
+  const navBtnDownload = $('#nav-btn-download');
+  const navBtnLogin = $('#nav-btn-login');
 
-  const toggleControls = (show: boolean) => {
-    controlsDrawer.toggleAttribute('hidden', !show);
-    toggleControlsBtn.setAttribute('aria-expanded', show ? 'true' : 'false');
-    if (show) {
-      closeControlsBtn.focus();
-    } else {
-      toggleControlsBtn.focus();
+  const deleteConfirmInput = $('#delete-character-confirm') as HTMLInputElement;
+  const deleteConfirmBtn = $('#btn-confirm-delete-character') as HTMLButtonElement;
+  const deleteCancelBtn = $('#btn-cancel-delete-character') as HTMLButtonElement;
+  const deleteModal = $('#delete-character-modal');
+
+  deleteConfirmInput.addEventListener('input', () => {
+    setDeleteCharacterError('');
+    deleteConfirmBtn.disabled = !pendingDeleteCharacter ||
+      normalizeDeleteConfirmation(deleteConfirmInput.value) !== normalizeDeleteConfirmation(pendingDeleteCharacter.name);
+  });
+  deleteConfirmInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !deleteConfirmBtn.disabled) {
+      e.preventDefault();
+      deleteConfirmBtn.click();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeDeleteCharacterDialog();
     }
+  });
+  deleteCancelBtn.addEventListener('click', () => closeDeleteCharacterDialog());
+  deleteModal.addEventListener('click', (e) => {
+    if (e.target === deleteModal) closeDeleteCharacterDialog();
+  });
+  deleteConfirmBtn.addEventListener('click', async () => {
+    if (!pendingDeleteCharacter) return;
+    const target = pendingDeleteCharacter;
+    deleteConfirmBtn.disabled = true;
+    setDeleteCharacterError('');
+    try {
+      await api.deleteCharacter(target.id, deleteConfirmInput.value);
+      closeDeleteCharacterDialog();
+      await refreshCharacters();
+    } catch (err: any) {
+      setDeleteCharacterError(err.message);
+      deleteConfirmBtn.disabled = normalizeDeleteConfirmation(deleteConfirmInput.value) !== normalizeDeleteConfirmation(target.name);
+    }
+  });
+
+  const setupNavBtn = (btn: HTMLElement | null, targetViewId: string, customAction?: () => void) => {
+    if (!btn) return;
+    const action = () => {
+      // Close mobile menu if open
+      const header = $('.homepage-header');
+      const toggleBtn = $('#mobile-menu-toggle');
+      if (header && toggleBtn) {
+        header.classList.remove('menu-open');
+        toggleBtn.setAttribute('aria-expanded', 'false');
+      }
+
+      if (customAction) {
+        customAction();
+      } else {
+        switchMainView(targetViewId);
+      }
+    };
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      action();
+    });
+    btn.addEventListener('keydown', (e) => {
+      handleKeyboardActivation(e as KeyboardEvent, action);
+    });
   };
 
-  toggleControlsBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    const isVisible = !controlsDrawer.hasAttribute('hidden');
-    toggleControls(!isVisible);
+  setupNavBtn(navBtnPlay, '#hero-view', () => {
+    switchMainView('#hero-view');
+    show('#mode-select');
   });
 
-  closeControlsBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    toggleControls(false);
+  setupNavBtn(navBtnHighscores, '#highscores-view');
+  setupNavBtn(navBtnWiki, '#wiki-view');
+  setupNavBtn(navBtnNews, '#news-view');
+  setupNavBtn(navBtnDownload, '#download-view');
+  setupNavBtn(navBtnLogin, '#hero-view', () => {
+    show('#login-panel');
   });
 
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !controlsDrawer.hasAttribute('hidden')) {
-      toggleControls(false);
-    }
+  // Header Logo click listener to return to homepage
+  const headerLogoBtn = $('#header-logo-btn');
+  setupNavBtn(headerLogoBtn, '#hero-view', () => {
+    switchMainView('#hero-view');
+    show('#mode-select');
   });
+
+  // Language selection dropdown setup
+  const langSelect = $('#lang-select') as HTMLSelectElement | null;
+  if (langSelect) {
+    langSelect.value = getLanguage();
+    langSelect.addEventListener('change', () => {
+      const selected = langSelect.value as SupportedLanguage;
+      setLanguage(selected);
+      
+      // Dynamically update the browser URL query parameter without page reload
+      if (typeof window !== 'undefined' && window.history) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('lang', selected);
+        window.history.pushState({}, '', url.toString());
+      }
+      
+      translatePage();
+    });
+  }
+
+  // Mobile menu toggle setup
+  const mobileMenuToggle = $('#mobile-menu-toggle');
+  const homepageHeader = $('.homepage-header');
+  if (mobileMenuToggle && homepageHeader) {
+    mobileMenuToggle.addEventListener('click', () => {
+      const isOpen = homepageHeader.classList.toggle('menu-open');
+      mobileMenuToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    });
+  }
 
   // Dynamically initialize background embers
   const initBackgroundEmbers = () => {

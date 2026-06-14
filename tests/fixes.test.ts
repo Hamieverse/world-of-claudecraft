@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Sim } from '../src/sim/sim';
 import { Entity, dist2d } from '../src/sim/types';
-import { CRYPT_DOOR_POS, DUNGEON_X_THRESHOLD, LAKE, MOBS, NPCS, QUESTS } from '../src/sim/data';
+import { CRYPT_DOOR_POS, DUNGEON_X_THRESHOLD, LAKE, MOBS, NPCS, QUESTS, zoneAt, zoneWelcomeText } from '../src/sim/data';
 import { createMob } from '../src/sim/entity';
 import { groundHeight, WATER_LEVEL } from '../src/sim/world';
 import { isBlocked, resolvePosition } from '../src/sim/colliders';
@@ -21,8 +21,33 @@ function teleportTo(sim: Sim, x: number, z: number, pid?: number) {
 }
 
 describe('quest lifecycle', () => {
+  it('stops showing the Redbrook starter hint after the first quest is accepted', () => {
+    const sim = makeSim();
+    const starterZone = zoneAt(sim.player.pos.z);
+
+    expect(zoneWelcomeText(starterZone, (questId) => sim.questState(questId)))
+      .toBe('Find Marshal Redbrook in town — he has work for you.');
+
+    const redbrook = [...sim.entities.values()].find((e) => e.templateId === 'marshal_redbrook')!;
+    teleportTo(sim, redbrook.pos.x + 2, redbrook.pos.z + 2);
+    sim.acceptQuest('q_wolves');
+    expect(zoneWelcomeText(starterZone, (questId) => sim.questState(questId))).toBeNull();
+
+    const qp = sim.questLog.get('q_wolves')!;
+    qp.counts[0] = 8;
+    qp.state = 'ready';
+
+    teleportTo(sim, redbrook.pos.x + 2, redbrook.pos.z + 2);
+    sim.turnInQuest('q_wolves');
+
+    expect(sim.questState('q_wolves')).toBe('done');
+    expect(zoneWelcomeText(starterZone, (questId) => sim.questState(questId))).toBeNull();
+  });
+
   it('a turned-in quest cannot be accepted again', () => {
     const sim = makeSim();
+    const redbrook = [...sim.entities.values()].find((e) => e.templateId === 'marshal_redbrook')!;
+    teleportTo(sim, redbrook.pos.x + 2, redbrook.pos.z + 2);
     sim.acceptQuest('q_wolves');
     expect(sim.questState('q_wolves')).toBe('active');
 
@@ -30,8 +55,6 @@ describe('quest lifecycle', () => {
     qp.counts[0] = 8;
     qp.state = 'ready';
 
-    const redbrook = [...sim.entities.values()].find((e) => e.templateId === 'marshal_redbrook')!;
-    teleportTo(sim, redbrook.pos.x + 2, redbrook.pos.z + 2);
     sim.turnInQuest('q_wolves');
     expect(sim.questState('q_wolves')).toBe('done');
     expect(sim.questLog.has('q_wolves')).toBe(false);
@@ -271,6 +294,21 @@ describe('quest npc roles', () => {
     // offers several — keep talking until the muster order is taken
     for (let i = 0; i < 10 && sim.questState('q_fenbridge_muster') !== 'active'; i++) sim.talkToNpc(aldric.id);
     expect(sim.questState('q_fenbridge_muster')).toBe('active');
+  });
+
+  it('cleanses hostile control auras from quest NPCs', () => {
+    const sim = makeSim('mage');
+    const redbrook = [...sim.entities.values()].find((e) => e.templateId === 'marshal_redbrook')!;
+    redbrook.auras.push({
+      id: 'polymorph', name: 'Polymorph', kind: 'polymorph',
+      remaining: 15, duration: 15, value: 0, tickInterval: 1, tickTimer: 1,
+      sourceId: sim.playerId, school: 'arcane', breaksOnDamage: true,
+    });
+
+    const events = sim.tick();
+
+    expect(redbrook.auras.some((a) => a.kind === 'polymorph')).toBe(false);
+    expect(events).toContainEqual({ type: 'aura', targetId: redbrook.id, name: 'Polymorph', gained: false });
   });
 });
 

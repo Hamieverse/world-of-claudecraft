@@ -5,7 +5,7 @@ import type { PlayerMeta } from '../src/sim/sim';
 import { DT, Entity, SimEvent, dist2d } from '../src/sim/types';
 import { stealthDetectionRadius, threatEntries } from '../src/sim/threat';
 import { zoneAt, DUNGEONS } from '../src/sim/data';
-import { saveCharacterState, openPlaySession, closePlaySession, insertChatLogs, pool } from './db';
+import { saveCharacterState, openPlaySession, closePlaySession, insertChatLogs, pool, loadMarketState, saveMarketState } from './db';
 import { ChatLogger } from './chat_log';
 import { SocialService } from './social';
 import type { Presence, PresenceStatus, SocialActor, SocialEvent, SocialTransport } from './social';
@@ -240,16 +240,29 @@ function parseCensorList(raw: string | undefined): string[] {
     .filter((term) => term.length > 0);
 }
 
+let censorCacheKey: string | null = null;
+let censorCacheTerms: string[] = [];
+
 function configuredChatCensorTerms(): string[] {
-  const terms = parseCensorList(process.env.CHAT_CENSOR_LIST);
-  const file = process.env.CHAT_CENSOR_FILE;
-  if (!file) return terms;
+  const rawList = process.env.CHAT_CENSOR_LIST ?? '';
+  const file = process.env.CHAT_CENSOR_FILE ?? '';
+  const cacheKey = `${rawList}\0${file}`;
+  if (cacheKey === censorCacheKey) return censorCacheTerms;
+
+  const terms = parseCensorList(rawList);
+  if (!file) {
+    censorCacheTerms = terms;
+    censorCacheKey = cacheKey;
+    return censorCacheTerms;
+  }
   try {
-    return terms.concat(parseCensorList(readFileSync(file, 'utf8')));
+    censorCacheTerms = terms.concat(parseCensorList(readFileSync(file, 'utf8')));
   } catch (err) {
     console.warn(`could not read CHAT_CENSOR_FILE (${file}):`, err);
     return terms;
   }
+  censorCacheKey = cacheKey;
+  return censorCacheTerms;
 }
 
 export function censorChatText(text: string): string {
@@ -264,6 +277,7 @@ export function censorChatText(text: string): string {
 export class GameServer {
   sim: Sim;
   clients = new Map<number, ClientSession>(); // by pid
+  private readonly sessionsByCharacterId = new Map<number, ClientSession>();
   readonly chatLog = new ChatLogger(insertChatLogs);
   private readonly socialDb = new PgSocialDb(pool);
   readonly social: SocialService;
@@ -291,8 +305,7 @@ export class GameServer {
   }
 
   private sessionByCharacterId(id: number): ClientSession | null {
-    for (const s of this.clients.values()) if (s.characterId === id) return s;
-    return null;
+    return this.sessionsByCharacterId.get(id) ?? null;
   }
 
   private sessionByName(name: string): ClientSession | null {
@@ -370,6 +383,7 @@ export class GameServer {
       if (this.saveTimer >= AUTOSAVE_SECONDS) {
         this.saveTimer = 0;
         void this.saveAll('autosave');
+        void this.saveMarket();
       }
     }, 50);
   }
@@ -381,9 +395,7 @@ export class GameServer {
   // -------------------------------------------------------------------------
 
   join(ws: WebSocket, accountId: number, characterId: number, name: string, cls: import('../src/sim/types').PlayerClass, state: import('../src/sim/sim').CharacterState | null, isGm = false): ClientSession | { error: string } {
-    for (const c of this.clients.values()) {
-      if (c.characterId === characterId) return { error: 'character already in world' };
-    }
+    if (this.sessionsByCharacterId.has(characterId)) return { error: 'character already in world' };
     const pid = this.sim.addPlayer(cls, name, { state: state ?? undefined });
     if (isGm) {
       // GM characters: invulnerable, and always at the level cap (the row is
@@ -403,6 +415,7 @@ export class GameServer {
       sentEnts: new Map(),
     };
     this.clients.set(pid, session);
+    this.sessionsByCharacterId.set(characterId, session);
     this.peakOnline = Math.max(this.peakOnline, this.clients.size);
     openPlaySession(accountId, characterId, name)
       .then((id) => { session.dbSessionId = id; })
@@ -437,6 +450,7 @@ export class GameServer {
   async leave(session: ClientSession, reason: string): Promise<void> {
     if (!this.clients.has(session.pid)) return;
     this.clients.delete(session.pid);
+    this.sessionsByCharacterId.delete(session.characterId);
     this.social.forget(session.characterId);
     // delete from clients first so friends see them as offline in the notice
     void this.social.announcePresence({ characterId: session.characterId, name: session.name }, false)
@@ -461,6 +475,23 @@ export class GameServer {
   async saveAll(reason: string): Promise<void> {
     for (const session of this.clients.values()) {
       await this.saveCharacter(session).catch((err) => console.error(`${reason} failed for ${session.name}:`, err));
+    }
+  }
+
+  // The World Market is shared global state, persisted as a single JSONB blob.
+  async loadMarket(): Promise<void> {
+    try {
+      this.sim.loadMarket(await loadMarketState());
+    } catch (err) {
+      console.error('failed to load world market:', err);
+    }
+  }
+
+  async saveMarket(): Promise<void> {
+    try {
+      await saveMarketState(this.sim.serializeMarket());
+    } catch (err) {
+      console.error('failed to save world market:', err);
     }
   }
 
@@ -672,6 +703,18 @@ export class GameServer {
       case 'guild_demote': if (typeof msg.name === 'string') void this.social.guildSetRank(this.actorFor(session), msg.name, 'member').catch(logSocialErr); break;
       case 'guild_transfer': if (typeof msg.name === 'string') void this.social.guildTransferLeader(this.actorFor(session), msg.name).catch(logSocialErr); break;
       case 'guild_disband': void this.social.guildDisband(this.actorFor(session)).catch(logSocialErr); break;
+      // arena (Ashen Coliseum 1v1 queue)
+      case 'arena_queue': sim.arenaQueueJoin(pid); break;
+      case 'arena_leave': sim.arenaQueueLeave(pid); break;
+      // World Market (the Merchant's auction house)
+      case 'market_list':
+        if (typeof msg.item === 'string' && typeof msg.count === 'number' && typeof msg.price === 'number') {
+          sim.marketList(msg.item, msg.count, msg.price, pid);
+        }
+        break;
+      case 'market_buy': if (typeof msg.id === 'number') sim.marketBuy(msg.id, pid); break;
+      case 'market_cancel': if (typeof msg.id === 'number') sim.marketCancel(msg.id, pid); break;
+      case 'market_collect': sim.marketCollect(pid); break;
       // dev/ops commands, only when ALLOW_DEV_COMMANDS=1 (never in production)
       case 'dev_level': {
         if (process.env.ALLOW_DEV_COMMANDS === '1' && typeof msg.level === 'number') {
@@ -878,6 +921,10 @@ export class GameServer {
     maybe('party', this.partyWire(session.pid));
     maybe('trade', this.tradeWire(session.pid));
     maybe('duel', this.duelWire(session.pid));
+    maybe('arena', this.sim.arenaInfoFor(session.pid));
+    // market info is null unless the player is standing at the Merchant, so it
+    // only rides the wire for players actually browsing the World Market
+    maybe('market', this.sim.marketInfoFor(session.pid));
     return extra === '' ? json : json.slice(0, -1) + extra + '}';
   }
 
@@ -892,7 +939,7 @@ export class GameServer {
         return meta && e ? {
           pid: mPid, name: meta.name, cls: meta.cls, level: e.level,
           hp: e.hp, mhp: e.maxHp, res: Math.round(e.resource), mres: e.maxResource, rtype: e.resourceType,
-          x: round2(e.pos.x), z: round2(e.pos.z), dead: e.dead ? 1 : 0,
+          x: round2(e.pos.x), z: round2(e.pos.z), dead: e.dead ? 1 : 0, inCombat: e.inCombat ? 1 : 0,
         } : null;
       }).filter(Boolean),
     };
@@ -1022,9 +1069,8 @@ export class GameServer {
     }
   }
 
-  // the web client applies quest commands optimistically; force the next
-  // snapshot to carry quest state even when the command changed nothing,
-  // so a rejected command still converges back to the server's truth
+  // force the next snapshot to carry quest state even when a quest command
+  // changed nothing, so stale client UI converges back to the server's truth
   private resyncQuests(session: ClientSession): void {
     delete session.lastSent.qlog;
     delete session.lastSent.qdone;

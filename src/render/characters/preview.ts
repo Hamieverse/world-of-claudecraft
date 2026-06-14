@@ -47,9 +47,12 @@ export class CharacterPreview {
     this.scene = new THREE.Scene();
 
     // 3. Initialize Camera
+    const aspect = this.container.clientHeight > 0
+      ? this.container.clientWidth / this.container.clientHeight
+      : 1;
     this.camera = new THREE.PerspectiveCamera(
       45,
-      this.container.clientWidth / this.container.clientHeight,
+      aspect,
       0.1,
       100
     );

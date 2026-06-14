@@ -301,6 +301,21 @@ describe('guilds', () => {
     expect(h.tx.eventsFor(3).some((e) => e.type === 'guildInvite')).toBe(true);
   });
 
+  it('awaits the rank-change broadcast so members reliably receive it', async () => {
+    await h.svc.guildCreate(h.actor(1), 'Knights');
+    await h.svc.guildInvite(h.actor(1), 'Bet');
+    await h.svc.guildAccept(h.actor(2));
+    h.tx.clear();
+    // Force the member lookup that broadcastGuild/pushGuild depend on to resolve
+    // on a later macrotask. If guildSetRank fails to await the broadcast, the
+    // promote notice will not have been delivered by the time the call resolves.
+    const realMembers = h.db.guildMembers.bind(h.db);
+    h.db.guildMembers = (guildId: number) =>
+      new Promise((resolve) => { setTimeout(() => { void realMembers(guildId).then(resolve); }, 0); });
+    await h.svc.guildSetRank(h.actor(1), 'Bet', 'officer');
+    expect(h.tx.textFor(2).join()).toMatch(/Bet is now Officer/);
+  });
+
   it('expires a stale invite', async () => {
     await h.svc.guildCreate(h.actor(1), 'Knights');
     await h.svc.guildInvite(h.actor(1), 'Bet');

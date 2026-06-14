@@ -3,14 +3,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  ensureSchema, pool, createAccount, findAccount, touchLogin, saveToken, accountForToken,
+  ensureSchema, pool, createAccount, findAccount, getAccountsCount, touchLogin, saveToken, accountForToken,
   listCharacters, getCharacter, createCharacter, deleteCharacter, closeOrphanSessions,
   pruneChatLogs, searchCharacters, characterCountsByRealm, moderationStatusForAccount, renameCharacter,
-  findCharacterReportTargetByName,
+  findCharacterReportTargetByName, topArenaRatings,
 } from './db';
 import { cleanReportReason, createPlayerReport } from './moderation_db';
 import { resolveReportTarget } from './report_target';
-import { hashPassword, verifyPassword, newToken, validUsername, validPassword, validCharName } from './auth';
+import {
+  hashPassword, verifyPassword, newToken, validUsernameShape, offensiveName, validPassword, normalizeCharName,
+} from './auth';
 import { json, readBody } from './http_util';
 import { rateLimited } from './ratelimit';
 import { handleAdminApi } from './admin';
@@ -24,6 +26,10 @@ const STATIC_DIR = path.join(__dirname, '..', 'dist');
 const CHAT_LOG_RETENTION_DAYS = Number(process.env.CHAT_LOG_RETENTION_DAYS ?? 90);
 
 const game = new GameServer();
+
+function normalizeDeleteConfirmation(name: unknown): string {
+  return typeof name === 'string' ? name.trim().toLowerCase() : '';
+}
 
 async function bearerAccount(req: http.IncomingMessage): Promise<number | null> {
   const auth = req.headers.authorization ?? '';
@@ -143,7 +149,8 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     }
     if (req.method === 'POST' && url === '/api/register') {
       const body = await readBody(req);
-      if (!validUsername(body.username)) return json(res, 400, { error: 'username must be 3-24 chars (letters, digits, _)' });
+      if (!validUsernameShape(body.username)) return json(res, 400, { error: 'username must be 3-24 chars (letters, digits, _)' });
+      if (offensiveName(body.username)) return json(res, 400, { error: 'username is not allowed' });
       if (!validPassword(body.password)) return json(res, 400, { error: 'password must be at least 6 chars' });
       const existing = await findAccount(body.username);
       if (existing) return json(res, 409, { error: 'username already taken' });
@@ -181,13 +188,15 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       }
       if (req.method === 'POST') {
         const body = await readBody(req);
-        if (!validCharName(body.name)) return json(res, 400, { error: 'invalid character name (2-16 letters)' });
+        const name = normalizeCharName(body.name);
+        if (name === null) return json(res, 400, { error: 'invalid character name (2-16 letters)' });
+        if (offensiveName(name)) return json(res, 400, { error: 'character name is not allowed' });
         const validClasses = ['warrior', 'paladin', 'hunter', 'rogue', 'priest', 'shaman', 'mage', 'warlock', 'druid'];
         if (!validClasses.includes(body.class)) return json(res, 400, { error: 'invalid class' });
         const chars = await listCharacters(accountId);
         if (chars.length >= 10) return json(res, 400, { error: 'character limit reached' });
         try {
-          const c = await createCharacter(accountId, body.name, body.class);
+          const c = await createCharacter(accountId, name, body.class);
           return json(res, 200, { id: c.id, name: c.name, class: c.class, level: c.level, forceRename: c.force_rename });
         } catch (err: any) {
           if (String(err?.message).includes('unique') || err?.code === '23505') {
@@ -203,9 +212,11 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const accountId = await bearerActiveAccount(req, res);
       if (accountId === null) return;
       const body = await readBody(req);
-      if (!validCharName(body.name)) return json(res, 400, { error: 'invalid character name (2-16 letters)' });
+      const name = normalizeCharName(body.name);
+      if (name === null) return json(res, 400, { error: 'invalid character name (2-16 letters)' });
+      if (offensiveName(name)) return json(res, 400, { error: 'character name is not allowed' });
       try {
-        const c = await renameCharacter(accountId, Number(renameMatch[1]), body.name);
+        const c = await renameCharacter(accountId, Number(renameMatch[1]), name);
         if (!c) return json(res, 404, { error: 'character not found' });
         return json(res, 200, { id: c.id, name: c.name, class: c.class, level: c.level, forceRename: c.force_rename });
       } catch (err: any) {
@@ -218,7 +229,17 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     if (req.method === 'DELETE' && delMatch) {
       const accountId = await bearerActiveAccount(req, res);
       if (accountId === null) return;
-      const ok = await deleteCharacter(accountId, Number(delMatch[1]));
+      const characterId = Number(delMatch[1]);
+      const body = await readBody(req);
+      const character = await getCharacter(accountId, characterId);
+      if (!character) return json(res, 404, { error: 'not found' });
+      if ([...game.clients.values()].some((s) => s.characterId === characterId)) {
+        return json(res, 400, { error: 'character is currently online' });
+      }
+      if (normalizeDeleteConfirmation(body.name) !== normalizeDeleteConfirmation(character.name)) {
+        return json(res, 400, { error: 'type the character name to confirm deletion' });
+      }
+      const ok = await deleteCharacter(accountId, characterId);
       return json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
     }
     if (req.method === 'GET' && url === '/api/realms') {
@@ -266,6 +287,14 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         return json(res, 400, { error: err instanceof Error ? err.message : 'could not submit report' });
       }
     }
+    if (req.method === 'GET' && url === '/api/project-stats') {
+      const accountsCount = await getAccountsCount();
+      return json(res, 200, {
+        accounts_created: accountsCount,
+        players_online: game.clients.size,
+        realm: REALM,
+      });
+    }
     if (req.method === 'GET' && url === '/api/status') {
       return json(res, 200, {
         ok: true,
@@ -273,6 +302,10 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
         players_online: game.clients.size,
         names: [...game.clients.values()].map((s) => s.name),
       });
+    }
+    if (req.method === 'GET' && url === '/api/arena/leaderboard') {
+      // public all-time Ashen Coliseum ladder (top rated characters)
+      return json(res, 200, { leaders: await topArenaRatings(20) });
     }
     json(res, 404, { error: 'unknown endpoint' });
   } catch (err: any) {
@@ -302,6 +335,7 @@ async function main(): Promise<void> {
   if (orphans > 0) console.log(`closed ${orphans} orphaned play session(s) from a previous run`);
   const pruned = await pruneChatLogs(CHAT_LOG_RETENTION_DAYS);
   if (pruned > 0) console.log(`pruned ${pruned} chat log row(s) older than ${CHAT_LOG_RETENTION_DAYS} days`);
+  await game.loadMarket();
   setInterval(() => {
     void pruneChatLogs(CHAT_LOG_RETENTION_DAYS).catch((err) => console.error('chat log prune failed:', err));
   }, 24 * 3600 * 1000).unref();
@@ -424,6 +458,7 @@ async function main(): Promise<void> {
     console.log('shutting down: saving characters...');
     game.stop();
     await game.saveAll('shutdown');
+    await game.saveMarket();
     await game.endAllPlaySessions();
     await game.chatLog.stop();
     await pool.end();

@@ -1,9 +1,10 @@
 import {
-  ABILITIES, CAMPS, CLASSES, DUNGEONS, DUNGEON_LIST, DungeonDef, dungeonAt,
-  DUNGEON_X_THRESHOLD, GROUND_OBJECTS, GROUP_XP_BONUS, INSTANCE_SLOT_COUNT,
+  ABILITIES, ARENA_SLOT_COUNT, CAMPS, CLASSES, DUNGEONS, DUNGEON_LIST, DungeonDef, arenaOrigin, dungeonAt,
+  DUNGEON_X_THRESHOLD, GROUND_OBJECTS, GROUP_XP_BONUS, INSTANCE_SLOT_COUNT, isArenaPos,
   ITEMS, MOBS, NPCS, PLAYER_START, QUESTS, REWARD_ARCHETYPE, abilitiesKnownAt, instanceOrigin,
   zoneAt,
 } from './data';
+import { ARENA_SPAWN_A, ARENA_SPAWN_B } from './dungeon_layout';
 import { resolvePosition } from './colliders';
 import { findPath } from './pathfind';
 import { createGroundObject, createMob, createNpc, createPlayer, recalcPlayerStats, PlayerEquipment } from './entity';
@@ -15,7 +16,7 @@ import {
 } from './threat';
 import { groundHeight, WATER_LEVEL } from './world';
 import {
-  AbilityDef, AbilityEffect, Aura, CAST_PUSHBACK_SEC, CHANNEL_PUSHBACK_FRACTION, CONSUME_DURATION,
+  AbilityDef, AbilityEffect, Aura, AuraKind, CAST_PUSHBACK_SEC, CHANNEL_PUSHBACK_FRACTION, CONSUME_DURATION,
   CONSUME_TICKS, DT, Entity, EquipSlot, GCD,
   INTERACT_RANGE, InvSlot, MELEE_RANGE, MAX_LEVEL,
   MoveInput, PlayerClass, QuestProgress, QuestState, RUN_SPEED, SimConfig, SimEvent, TURN_SPEED, Vec3,
@@ -36,12 +37,27 @@ const OBJECT_RESPAWN = 30;
 const PARTY_MAX = 5;
 const PARTY_XP_RANGE = 80; // yards: members this close share kill xp/credit
 const DUEL_COUNTDOWN = 3;
+// Ashen Coliseum 1v1 arena
+const ARENA_COUNTDOWN = 5; // gates pre-fight: heal up, no swings land yet
+const ARENA_MAX_DURATION = 150; // seconds; a stalling match resolves on hp%
+const ARENA_BASE_RATING = 1500; // every character starts here, unranked
+const ARENA_MIN_RATING = 100; // a rating floor so a losing streak can't go absurd
+const ARENA_K_FACTOR = 32; // Elo sensitivity per match
+const ARENA_LADDER_SIZE = 10; // live online standings shipped to clients
 const SAY_RANGE = 25; // /say carries a short distance; /yell across a camp
 const YELL_RANGE = 100;
 const CHAT_BURST = 8; // messages a player may send back-to-back...
 const CHAT_REFILL = 2; // ...then this many more per second (caps spam amplifiers)
 const DUEL_FORFEIT_DISTANCE = 60;
 const TRADE_RANGE = 10;
+// The World Market (the Merchant's auction house)
+const MARKET_RANGE = INTERACT_RANGE + 2; // you must stand at the Merchant to deal
+const MARKET_MAX_LISTINGS = 12; // active player listings per seller
+const MARKET_MIN_PRICE = 1; // copper
+const MARKET_MAX_PRICE = 5_000_000; // 500g ceiling — guards against overflow / fat-finger
+const MARKET_CUT = 0.05; // the Merchant's cut on a completed sale (a gold sink)
+const MARKET_LISTING_DURATION = 48 * 3600; // sim-seconds an unsold listing lingers before returning
+const MARKET_WIRE_LIMIT = 120; // most listings shipped to one client at a time
 const INSTANCE_EMPTY_TIMEOUT = 300; // seconds before an empty instance resets
 const HUNTER_RANGED_DEADZONE = 8;
 const MAX_CLIMB_SLOPE = 1.5; // rise/run above which a ground move is blocked (cliffs, world rim)
@@ -58,6 +74,13 @@ const PET_FOLLOW_DISTANCE = 3.5;
 const PET_TELEPORT_DISTANCE = 60; // owner this far away: pet warps to heel
 const PET_ASSIST_RANGE = 50; // how far the pet scans for enemies engaging the pair
 const PET_GROWL_INTERVAL = 8; // controlled pets can tank by forcing attention
+const FRIENDLY_NPC_REJECTED_AURA_KINDS: ReadonlySet<AuraKind> = new Set([
+  'dot', 'slow', 'stun', 'root', 'incapacitate', 'polymorph', 'attackspeed', 'sunder',
+]);
+
+function isRejectedFriendlyNpcAura(aura: Aura): boolean {
+  return FRIENDLY_NPC_REJECTED_AURA_KINDS.has(aura.kind);
+}
 
 export interface Party {
   id: number;
@@ -79,6 +102,30 @@ export interface DuelState {
   b: number;
   state: 'countdown' | 'active';
   timer: number; // countdown remaining / elapsed
+}
+
+// A live 1v1 arena bout. Both combatants are teleported into a private arena
+// instance slot; `return*` remembers where each was standing so the match can
+// put them back when it ends. Ratings are snapshotted at the start purely for
+// the result message — the authoritative values live on each PlayerMeta.
+export interface ArenaMatch {
+  id: number;
+  a: number; // pid
+  b: number; // pid
+  slot: number; // arena instance slot
+  state: 'countdown' | 'active';
+  timer: number; // countdown remaining, then elapsed once active
+  returnA: { x: number; z: number; facing: number };
+  returnB: { x: number; z: number; facing: number };
+  ratingA: number;
+  ratingB: number;
+}
+
+// Standard Elo. Returns the points the winner gains (and the loser loses) for
+// an outright result; a draw moves each toward its expected score by half.
+export function eloDelta(winnerRating: number, loserRating: number, score = 1): number {
+  const expected = 1 / (1 + 10 ** ((loserRating - winnerRating) / 400));
+  return Math.round(ARENA_K_FACTOR * (score - expected));
 }
 
 export interface InstanceSlot {
@@ -133,9 +180,50 @@ export interface PlayerMeta {
   questsDone: Set<string>;
   counters: RewardCounters;
   autoEquip: boolean;
+  // Ashen Coliseum standing — persisted in CharacterState
+  arenaRating: number;
+  arenaWins: number;
+  arenaLosses: number;
 }
 
-// Persistable character state (stored as JSONB server-side).
+// ---------------------------------------------------------------------------
+// The World Market — a single shared, server-authoritative auction house run
+// by the Merchant NPC. Listings live in the sim (so offline play has a market
+// too and the rules are testable); the server persists them to Postgres.
+// Sellers are keyed by character name, which is globally unique, so proceeds
+// and returns reach the right player even while they are offline.
+// ---------------------------------------------------------------------------
+
+export interface MarketListing {
+  id: number;
+  sellerKey: string; // stable seller identity (character name); '' for house stock
+  sellerName: string; // display name
+  itemId: string;
+  count: number;
+  price: number; // total copper buyout for the whole stack
+  expiresAt: number; // sim.time seconds; Infinity for the Merchant's own stock
+  house: boolean; // the Merchant's standing stock: never expires, never depletes, pays no one
+}
+
+// Gold + items awaiting pickup at the Merchant (sale proceeds, expired
+// listings), keyed by seller name so an offline seller can collect later.
+export interface MarketCollection {
+  copper: number;
+  items: InvSlot[];
+}
+
+// Persistable market state. `secondsLeft` is stored instead of an absolute
+// expiry because sim.time resets to 0 each server boot — on load it becomes
+// `this.time + secondsLeft`, so a restart never silently expires everything.
+export interface MarketSave {
+  listings: { id: number; sellerKey: string; sellerName: string; itemId: string; count: number; price: number; secondsLeft: number }[];
+  collections: { key: string; copper: number; items: InvSlot[] }[];
+  nextListingId: number;
+}
+
+// Persistable character state (stored as JSONB server-side). The arena fields
+// are optional so characters saved before the Ashen Coliseum existed load
+// cleanly (addPlayer falls back to the unranked defaults).
 export interface CharacterState {
   level: number;
   xp: number;
@@ -148,6 +236,9 @@ export interface CharacterState {
   inventory: InvSlot[];
   questLog: { questId: string; counts: number[]; state: 'active' | 'ready' | 'done' }[];
   questsDone: string[];
+  arenaRating?: number;
+  arenaWins?: number;
+  arenaLosses?: number;
 }
 
 // Pure quest-state computation, shared by the sim and the network client.
@@ -165,6 +256,12 @@ export function computeQuestState(
   if (quest.requiresQuest && !questsDone.has(quest.requiresQuest)) return 'unavailable';
   if (quest.minLevel && playerLevel < quest.minLevel) return 'unavailable';
   return 'available';
+}
+
+function copyPos(dst: { x: number; y: number; z: number }, src: { x: number; y: number; z: number }): void {
+  dst.x = src.x;
+  dst.y = src.y;
+  dst.z = src.z;
 }
 
 function freshCounters(): RewardCounters {
@@ -210,10 +307,22 @@ export class Sim {
   tradeInvites = new Map<number, { fromPid: number; expires: number }>();
   duels = new Map<number, DuelState>(); // pid -> shared duel (both pids)
   duelInvites = new Map<number, { fromPid: number; expires: number }>();
+  // arena: a matchmaking queue (pids, oldest first), live bouts keyed by both
+  // pids, and the set of busy instance slots
+  arenaQueue: number[] = [];
+  arenaMatches = new Map<number, ArenaMatch>(); // pid -> shared match (both pids)
+  private arenaBusySlots = new Set<number>();
+  private nextArenaMatchId = 1;
   // per-player chat token bucket (anti-spam); refilled lazily by sim time
   private chatTokens = new Map<number, { tokens: number; at: number }>();
   // dungeon instances
   instances: InstanceSlot[] = [];
+  // the World Market: one shared listing book, per-seller collections keyed by
+  // character name, and the Merchant entity these are anchored to
+  marketListings: MarketListing[] = [];
+  private marketCollections = new Map<string, MarketCollection>();
+  private nextListingId = 1;
+  private merchantId = -1;
 
   constructor(cfg: SimConfig) {
     this.cfg = {
@@ -230,7 +339,9 @@ export class Sim {
       const safe = this.findSafePos(npcDef.pos.x, npcDef.pos.z, WATER_LEVEL + 0.6);
       const npc = createNpc(this.nextId++, npcDef, this.groundPos(safe.x, safe.z));
       this.addEntity(npc);
+      if (npcDef.market) this.merchantId = npc.id; // the World Market is anchored here
     }
+    this.seedHouseListings();
 
     // Mobs from camps
     for (const camp of CAMPS) {
@@ -333,6 +444,9 @@ export class Sim {
       questsDone: new Set(),
       counters: freshCounters(),
       autoEquip: opts?.autoEquip ?? false,
+      arenaRating: opts?.state?.arenaRating ?? ARENA_BASE_RATING,
+      arenaWins: opts?.state?.arenaWins ?? 0,
+      arenaLosses: opts?.state?.arenaLosses ?? 0,
     };
     this.players.set(player.id, meta);
     if (this.primaryId === -1) this.primaryId = player.id;
@@ -377,6 +491,10 @@ export class Sim {
     if (trade) this.tradeCancel(pid);
     const duel = this.duels.get(pid);
     if (duel) this.endDuel(duel, duel.a === pid ? duel.b : duel.a);
+    // arena: leaving the queue is free; disconnecting mid-bout forfeits it
+    this.arenaDequeue(pid);
+    const match = this.arenaMatches.get(pid);
+    if (match) this.endArenaMatch(match, match.a === pid ? match.b : match.a, 'forfeit');
     this.partyInvites.delete(pid);
     this.tradeInvites.delete(pid);
     this.duelInvites.delete(pid);
@@ -422,6 +540,9 @@ export class Sim {
       inventory: meta.inventory.map((i) => ({ ...i })),
       questLog: [...meta.questLog.values()].map((q) => ({ questId: q.questId, counts: [...q.counts], state: q.state })),
       questsDone: [...meta.questsDone],
+      arenaRating: meta.arenaRating,
+      arenaWins: meta.arenaWins,
+      arenaLosses: meta.arenaLosses,
     };
   }
 
@@ -577,7 +698,7 @@ export class Sim {
     this.tickCount++;
 
     for (const e of this.entities.values()) {
-      e.prevPos = { ...e.pos };
+      copyPos(e.prevPos, e.pos);
       e.prevFacing = e.facing;
     }
 
@@ -599,6 +720,8 @@ export class Sim {
       if (e.kind === 'mob') {
         this.updateMob(e);
         this.updateAuras(e);
+      } else if (e.kind === 'npc') {
+        this.cleanseFriendlyNpcAuras(e);
       } else if (e.kind === 'object') {
         if (!e.lootable) {
           e.respawnTimer -= DT;
@@ -621,8 +744,10 @@ export class Sim {
     }
 
     this.updateDuels();
+    this.updateArena();
     this.updateTradesAndInvites();
     this.updateInstances();
+    this.updateMarket();
 
     // movement re-bucketing: queries during the next tick and the server's
     // snapshot broadcast right after this one see fresh cells
@@ -894,6 +1019,15 @@ export class Sim {
       const nv = v - DT;
       if (nv <= 0) p.cooldowns.delete(k);
       else p.cooldowns.set(k, nv);
+    }
+  }
+
+  private cleanseFriendlyNpcAuras(e: Entity): void {
+    for (let i = e.auras.length - 1; i >= 0; i--) {
+      const aura = e.auras[i];
+      if (!isRejectedFriendlyNpcAura(aura)) continue;
+      e.auras.splice(i, 1);
+      this.emit({ type: 'aura', targetId: e.id, name: aura.name, gained: false });
     }
   }
 
@@ -1614,6 +1748,7 @@ export class Sim {
   }
 
   private applyAura(target: Entity, aura: Aura): void {
+    if (target.kind === 'npc' && isRejectedFriendlyNpcAura(aura)) return;
     const existing = target.auras.findIndex((a) => a.id === aura.id && a.sourceId === aura.sourceId);
     if (existing >= 0) target.auras.splice(existing, 1);
     target.auras.push(aura);
@@ -1772,6 +1907,7 @@ export class Sim {
         const eff = queued.effects.find((e) => e.type === 'weaponDamage');
         if (p.resource >= queued.cost && eff && eff.type === 'weaponDamage') {
           this.spendResource(p, queued.cost);
+          if (queued.def.cooldown > 0) p.cooldowns.set(queued.def.id, queued.def.cooldown);
           bonus = eff.bonus;
           abilityName = queued.def.name;
           threatFlat = queued.threatFlat;
@@ -1881,6 +2017,18 @@ export class Sim {
         target.hp = 1;
         this.emit({ type: 'damage', sourceId: source.id, targetId: target.id, amount, crit, school, ability, kind });
         this.endDuel(duel, source.id);
+        return;
+      }
+    }
+
+    // arena bouts also end at 1 hp — the loser yields, nobody actually dies
+    const match = target.kind === 'player' ? this.arenaMatches.get(target.id) : undefined;
+    if (match && match.state === 'active' && source && (source.id === match.a || source.id === match.b)) {
+      if (target.hp - amount < 1) {
+        amount = Math.max(0, target.hp - 1);
+        target.hp = 1;
+        this.emit({ type: 'damage', sourceId: source.id, targetId: target.id, amount, crit, school, ability, kind });
+        this.endArenaMatch(match, source.id, 'defeat');
         return;
       }
     }
@@ -2294,7 +2442,6 @@ export class Sim {
           mob.aiState = 'evade';
           mob.aggroTargetId = null;
           clearThreat(mob);
-          this.emit({ type: 'log', text: mob.name + ' returns home.', color: '#999', entityId: mob.id });
           break;
         }
         const d = dist2d(mob.pos, target.pos);
@@ -2698,7 +2845,12 @@ export class Sim {
     const { meta, e: p } = r;
     const npc = this.entities.get(npcId);
     const def = ITEMS[itemId];
-    if (!npc || npc.kind !== 'npc' || !npc.vendorItems.includes(itemId) || !def?.buyValue) return;
+    if (!npc || npc.kind !== 'npc' || npc.vendorItems.length === 0) {
+      this.error(meta.entityId, 'That merchant is not available.');
+      return;
+    }
+    if (!npc.vendorItems.includes(itemId)) { this.error(meta.entityId, 'That item is not sold here.'); return; }
+    if (!def?.buyValue) { this.error(meta.entityId, 'That item is not for sale.'); return; }
     if (dist2d(p.pos, npc.pos) > INTERACT_RANGE + 2) { this.error(meta.entityId, 'Too far away.'); return; }
     if (meta.copper < def.buyValue) { this.error(meta.entityId, 'Not enough money.'); return; }
     meta.copper -= def.buyValue;
@@ -2711,7 +2863,8 @@ export class Sim {
     if (!r) return;
     const { meta, e: p } = r;
     const def = ITEMS[itemId];
-    if (!def || this.countItem(itemId, meta.entityId) <= 0 || p.dead) return;
+    if (!def || this.countItem(itemId, meta.entityId) <= 0) { this.error(meta.entityId, "You don't have that item."); return; }
+    if (p.dead) { this.error(meta.entityId, "You can't do that while dead."); return; }
     // mirror buyItem's gate: selling requires a vendor in interact range
     const nearVendor = [...this.entities.values()].some((e) =>
       e.kind === 'npc' && e.vendorItems.length > 0 && dist2d(p.pos, e.pos) <= INTERACT_RANGE + 2);
@@ -2856,12 +3009,30 @@ export class Sim {
     return computeQuestState(questId, r.meta.questLog, r.meta.questsDone, r.e.level);
   }
 
+  private questNpcFor(questId: string, role: 'giver' | 'turnIn', p: Entity): { npc: Entity | null; tooFar: boolean } {
+    const quest = QUESTS[questId];
+    const templateId = role === 'giver' ? quest.giverNpcId : quest.turnInNpcId;
+    let sawNpc = false;
+    for (const e of this.entities.values()) {
+      if (e.kind !== 'npc' || e.templateId !== templateId) continue;
+      sawNpc = true;
+      if (dist2d(p.pos, e.pos) <= INTERACT_RANGE + 2) return { npc: e, tooFar: false };
+    }
+    return { npc: null, tooFar: sawNpc };
+  }
+
   acceptQuest(questId: string, pid?: number): void {
     const r = this.resolve(pid);
     if (!r) return;
-    const { meta } = r;
-    if (this.questState(questId, meta.entityId) !== 'available') return;
     const quest = QUESTS[questId];
+    const { meta, e: p } = r;
+    if (!quest) { this.error(meta.entityId, 'That quest is not available.'); return; }
+    if (this.questState(questId, meta.entityId) !== 'available') { this.error(meta.entityId, 'That quest is not available.'); return; }
+    const nearby = this.questNpcFor(questId, 'giver', p);
+    if (!nearby.npc) {
+      this.error(meta.entityId, nearby.tooFar ? 'Too far away.' : 'That quest giver is not nearby.');
+      return;
+    }
     meta.questLog.set(questId, { questId, counts: quest.objectives.map(() => 0), state: 'active' });
     this.emit({ type: 'questAccepted', questId, pid: meta.entityId });
     this.emit({ type: 'log', text: `Quest accepted: ${quest.name}`, color: '#ff0', pid: meta.entityId });
@@ -2881,11 +3052,16 @@ export class Sim {
     const r = this.resolve(pid);
     if (!r) return;
     const { meta, e: p } = r;
-    const qp = meta.questLog.get(questId);
-    if (!qp || qp.state !== 'ready') return;
     const quest = QUESTS[questId];
-    const npc = [...this.entities.values()].find((e) => e.kind === 'npc' && e.templateId === quest.turnInNpcId);
-    if (!npc || dist2d(p.pos, npc.pos) > INTERACT_RANGE + 2) { this.error(meta.entityId, 'Too far away.'); return; }
+    if (!quest) { this.error(meta.entityId, 'That quest is not available.'); return; }
+    const qp = meta.questLog.get(questId);
+    if (!qp) { this.error(meta.entityId, 'That quest is not in your log.'); return; }
+    if (qp.state !== 'ready') { this.error(meta.entityId, 'That quest is not complete.'); return; }
+    const nearby = this.questNpcFor(questId, 'turnIn', p);
+    if (!nearby.npc) {
+      this.error(meta.entityId, nearby.tooFar ? 'Too far away.' : 'That quest turn-in is not nearby.');
+      return;
+    }
 
     for (const obj of quest.objectives) {
       if (obj.type === 'collect' && obj.itemId) this.removeItem(obj.itemId, obj.count, meta.entityId);
@@ -3076,7 +3252,9 @@ export class Sim {
     if (target.kind === 'mob') return target.hostile;
     if (target.kind === 'player' && attacker.kind === 'player') {
       const duel = this.duels.get(attacker.id);
-      return !!duel && duel.state === 'active' && (duel.a === target.id || duel.b === target.id);
+      if (duel && duel.state === 'active' && (duel.a === target.id || duel.b === target.id)) return true;
+      const match = this.arenaMatches.get(attacker.id);
+      return !!match && match.state === 'active' && (match.a === target.id || match.b === target.id);
     }
     return false;
   }
@@ -3327,6 +3505,286 @@ export class Sim {
   }
 
   // -------------------------------------------------------------------------
+  // The Ashen Coliseum — 1v1 ranked arena (queue, matchmaking, Elo)
+  // -------------------------------------------------------------------------
+
+  arenaQueueJoin(pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const id = r.meta.entityId;
+    if (this.arenaQueue.includes(id)) {
+      // already waiting — just re-affirm their place in line
+      this.emit({ type: 'arenaQueued', position: this.arenaQueue.indexOf(id) + 1, pid: id });
+      return;
+    }
+    if (this.arenaMatches.has(id)) { this.error(id, 'You are already in an arena match.'); return; }
+    if (r.e.dead) { this.error(id, 'You cannot queue for the arena while dead.'); return; }
+    if (this.duels.has(id)) { this.error(id, 'You cannot queue while dueling.'); return; }
+    if (this.trades.has(id)) { this.error(id, 'Finish your trade before queueing.'); return; }
+    if (r.e.pos.x > DUNGEON_X_THRESHOLD) { this.error(id, 'You cannot queue from inside an instance.'); return; }
+    this.arenaQueue.push(id);
+    this.emit({ type: 'arenaQueued', position: this.arenaQueue.length, pid: id });
+    this.emit({ type: 'log', text: 'You join the Ashen Coliseum queue. Stand by for a worthy opponent…', color: '#ffa040', pid: id });
+  }
+
+  arenaQueueLeave(pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    if (this.arenaDequeue(r.meta.entityId)) {
+      this.emit({ type: 'arenaUnqueued', pid: r.meta.entityId });
+      this.emit({ type: 'log', text: 'You leave the Ashen Coliseum queue.', color: '#ffa040', pid: r.meta.entityId });
+    }
+  }
+
+  private arenaDequeue(pid: number): boolean {
+    const i = this.arenaQueue.indexOf(pid);
+    if (i < 0) return false;
+    this.arenaQueue.splice(i, 1);
+    return true;
+  }
+
+  private freeArenaSlot(): number | null {
+    for (let i = 0; i < ARENA_SLOT_COUNT; i++) {
+      if (!this.arenaBusySlots.has(i)) return i;
+    }
+    return null;
+  }
+
+  private updateArena(): void {
+    this.matchmakeArena();
+    const seen = new Set<ArenaMatch>();
+    for (const match of this.arenaMatches.values()) {
+      if (seen.has(match)) continue;
+      seen.add(match);
+      const ea = this.entities.get(match.a);
+      const eb = this.entities.get(match.b);
+      if (!ea || !eb) { this.endArenaMatch(match, ea ? match.a : eb ? match.b : null, 'forfeit'); continue; }
+      if (match.state === 'countdown') {
+        const before = Math.ceil(match.timer);
+        match.timer -= DT;
+        const after = Math.ceil(match.timer);
+        if (after < before && after > 0) {
+          for (const mPid of [match.a, match.b]) this.emit({ type: 'arenaCountdown', seconds: after, pid: mPid });
+        }
+        if (match.timer <= 0) {
+          match.state = 'active';
+          match.timer = 0;
+          for (const e of [ea, eb]) this.resetForArena(e);
+          for (const mPid of [match.a, match.b]) {
+            this.emit({ type: 'log', text: 'Fight!', color: '#ff5a3c', pid: mPid });
+            this.emit({ type: 'arenaStart', pid: mPid });
+          }
+        }
+        continue;
+      }
+      // active: a stalling bout resolves on remaining-health fraction
+      match.timer += DT;
+      if (match.timer >= ARENA_MAX_DURATION) {
+        const fa = ea.hp / Math.max(1, ea.maxHp);
+        const fb = eb.hp / Math.max(1, eb.maxHp);
+        const winner = Math.abs(fa - fb) < 0.02 ? null : fa > fb ? match.a : match.b;
+        this.endArenaMatch(match, winner, 'timeout');
+      }
+    }
+  }
+
+  // Pair the longest-waiting contender with the nearest-rated opponent still in
+  // line, one bout per free slot. Skips (and drops) anyone who went offline or
+  // died while waiting.
+  private matchmakeArena(): void {
+    let guard = ARENA_SLOT_COUNT + 1;
+    while (guard-- > 0) {
+      this.arenaQueue = this.arenaQueue.filter((id) => {
+        const e = this.entities.get(id);
+        return !!e && !e.dead && !this.arenaMatches.has(id);
+      });
+      if (this.arenaQueue.length < 2 || this.freeArenaSlot() === null) return;
+      const aPid = this.arenaQueue[0];
+      const aRating = this.players.get(aPid)?.arenaRating ?? ARENA_BASE_RATING;
+      let bPid = -1, bestGap = Infinity;
+      for (let i = 1; i < this.arenaQueue.length; i++) {
+        const id = this.arenaQueue[i];
+        const gap = Math.abs((this.players.get(id)?.arenaRating ?? ARENA_BASE_RATING) - aRating);
+        if (gap < bestGap) { bestGap = gap; bPid = id; }
+      }
+      if (bPid < 0) return;
+      this.arenaDequeue(aPid);
+      this.arenaDequeue(bPid);
+      this.startArenaMatch(aPid, bPid);
+    }
+  }
+
+  private startArenaMatch(aPid: number, bPid: number): void {
+    const slot = this.freeArenaSlot();
+    const aMeta = this.players.get(aPid);
+    const bMeta = this.players.get(bPid);
+    const ea = this.entities.get(aPid);
+    const eb = this.entities.get(bPid);
+    if (slot === null || !aMeta || !bMeta || !ea || !eb) {
+      // couldn't seat them — put them back so the next tick retries
+      if (this.entities.get(aPid)) this.arenaQueue.unshift(aPid);
+      if (this.entities.get(bPid)) this.arenaQueue.unshift(bPid);
+      return;
+    }
+    this.arenaBusySlots.add(slot);
+    const match: ArenaMatch = {
+      id: this.nextArenaMatchId++, a: aPid, b: bPid, slot, state: 'countdown', timer: ARENA_COUNTDOWN,
+      returnA: { x: ea.pos.x, z: ea.pos.z, facing: ea.facing },
+      returnB: { x: eb.pos.x, z: eb.pos.z, facing: eb.facing },
+      ratingA: aMeta.arenaRating, ratingB: bMeta.arenaRating,
+    };
+    this.arenaMatches.set(aPid, match);
+    this.arenaMatches.set(bPid, match);
+    const origin = arenaOrigin(slot);
+    this.placeInArena(ea, origin, ARENA_SPAWN_A);
+    this.placeInArena(eb, origin, ARENA_SPAWN_B);
+    this.resetForArena(ea);
+    this.resetForArena(eb);
+    this.emit({ type: 'arenaFound', oppName: bMeta.name, oppClass: bMeta.cls, oppLevel: eb.level, pid: aPid });
+    this.emit({ type: 'arenaFound', oppName: aMeta.name, oppClass: aMeta.cls, oppLevel: ea.level, pid: bPid });
+    for (const mPid of [aPid, bPid]) {
+      this.emit({ type: 'arenaCountdown', seconds: ARENA_COUNTDOWN, pid: mPid });
+      this.emit({ type: 'log', text: 'You step onto the sands of the Ashen Coliseum.', color: '#ffa040', pid: mPid });
+    }
+  }
+
+  private placeInArena(e: Entity, origin: { x: number; z: number }, spawn: { x: number; z: number; facing: number }): void {
+    e.pos = this.groundPos(origin.x + spawn.x, origin.z + spawn.z);
+    e.prevPos = { ...e.pos };
+    e.facing = spawn.facing;
+    e.prevFacing = spawn.facing;
+    this.rebucket(e);
+  }
+
+  // A clean slate so the bout is decided by play, not by what each fighter
+  // walked in carrying: full health/resource, cooldowns and combat reset.
+  private resetForArena(e: Entity): void {
+    const meta = this.players.get(e.id);
+    if (meta) recalcPlayerStats(e, meta.cls, meta.equipment);
+    e.auras = [];
+    e.hp = e.maxHp;
+    e.resource = e.resourceType === 'mana' ? e.maxResource : e.resourceType === 'energy' ? 100 : 0;
+    e.targetId = null;
+    e.autoAttack = false;
+    e.queuedOnSwing = null;
+    e.castingAbility = null;
+    e.castRemaining = 0;
+    e.channeling = false;
+    e.comboPoints = 0;
+    e.comboTargetId = null;
+    e.cooldowns.clear();
+    e.gcdRemaining = 0;
+    e.swingTimer = 0;
+    e.chargeTargetId = null;
+    e.chargePath = [];
+    e.combatTimer = 99;
+    e.inCombat = false;
+    e.sitting = false;
+    e.eating = null;
+    e.drinking = null;
+  }
+
+  // winnerPid null = draw; reason is informational (defeat/timeout/forfeit).
+  private endArenaMatch(match: ArenaMatch, winnerPid: number | null, reason: 'defeat' | 'timeout' | 'forfeit'): void {
+    this.arenaMatches.delete(match.a);
+    this.arenaMatches.delete(match.b);
+    this.arenaBusySlots.delete(match.slot);
+    const aMeta = this.players.get(match.a);
+    const bMeta = this.players.get(match.b);
+    const ea = this.entities.get(match.a);
+    const eb = this.entities.get(match.b);
+
+    // rating: zero-sum Elo. A draw nudges each toward its expected score.
+    if (aMeta && bMeta) {
+      const ratingA0 = aMeta.arenaRating;
+      const ratingB0 = bMeta.arenaRating;
+      let deltaA: number;
+      if (winnerPid === null) {
+        deltaA = eloDelta(ratingA0, ratingB0, 0.5);
+        aMeta.arenaWins += 0; bMeta.arenaWins += 0; // draws count as neither
+      } else if (winnerPid === match.a) {
+        deltaA = eloDelta(ratingA0, ratingB0, 1);
+        aMeta.arenaWins++; bMeta.arenaLosses++;
+      } else {
+        deltaA = -eloDelta(ratingB0, ratingA0, 1);
+        bMeta.arenaWins++; aMeta.arenaLosses++;
+      }
+      aMeta.arenaRating = Math.max(ARENA_MIN_RATING, ratingA0 + deltaA);
+      bMeta.arenaRating = Math.max(ARENA_MIN_RATING, ratingB0 - deltaA);
+      this.emit({
+        type: 'arenaEnd', pid: match.a, draw: winnerPid === null, won: winnerPid === match.a,
+        oppName: bMeta.name, ratingBefore: ratingA0, ratingAfter: aMeta.arenaRating,
+      });
+      this.emit({
+        type: 'arenaEnd', pid: match.b, draw: winnerPid === null, won: winnerPid === match.b,
+        oppName: aMeta.name, ratingBefore: ratingB0, ratingAfter: bMeta.arenaRating,
+      });
+    }
+
+    // restore both fighters to where they queued from, healed and out of combat
+    for (const [e, ret] of [[ea, match.returnA], [eb, match.returnB]] as const) {
+      if (!e) continue;
+      const meta = this.players.get(e.id);
+      e.pos = this.groundPos(ret.x, ret.z);
+      e.prevPos = { ...e.pos };
+      e.facing = ret.facing;
+      this.rebucket(e);
+      if (meta) recalcPlayerStats(e, meta.cls, meta.equipment);
+      e.auras = [];
+      e.dead = false;
+      e.hp = e.maxHp;
+      e.resource = e.resourceType === 'mana' ? e.maxResource : e.resourceType === 'energy' ? 100 : 0;
+      e.targetId = null;
+      e.autoAttack = false;
+      e.castingAbility = null;
+      e.channeling = false;
+      e.combatTimer = 99;
+      e.inCombat = false;
+      this.emit({ type: 'respawn', pid: e.id });
+    }
+  }
+
+  arenaMatchFor(pid: number): ArenaMatch | null {
+    return this.arenaMatches.get(pid) ?? null;
+  }
+
+  // Live standings of rated players currently online, best first.
+  arenaLadder(): import('../world_api').ArenaLadderEntry[] {
+    const rows: import('../world_api').ArenaLadderEntry[] = [];
+    for (const meta of this.players.values()) {
+      const e = this.entities.get(meta.entityId);
+      if (!e) continue;
+      rows.push({ pid: meta.entityId, name: meta.name, cls: meta.cls, rating: meta.arenaRating, wins: meta.arenaWins, losses: meta.arenaLosses });
+    }
+    rows.sort((x, y) => y.rating - x.rating || y.wins - x.wins);
+    return rows.slice(0, ARENA_LADDER_SIZE);
+  }
+
+  arenaInfoFor(pid: number): import('../world_api').ArenaInfo | null {
+    const meta = this.players.get(pid);
+    if (!meta) return null;
+    const match = this.arenaMatches.get(pid);
+    let matchInfo: import('../world_api').ArenaInfo['match'] = null;
+    if (match) {
+      const oppPid = match.a === pid ? match.b : match.a;
+      const oppMeta = this.players.get(oppPid);
+      const oppE = this.entities.get(oppPid);
+      if (oppMeta && oppE) {
+        matchInfo = { state: match.state, oppName: oppMeta.name, oppClass: oppMeta.cls, oppLevel: oppE.level, oppPid };
+      }
+    }
+    return {
+      rating: meta.arenaRating,
+      wins: meta.arenaWins,
+      losses: meta.arenaLosses,
+      queued: this.arenaQueue.includes(pid),
+      queueSize: this.arenaQueue.length,
+      match: matchInfo,
+      ladder: this.arenaLadder(),
+    };
+  }
+
+  // -------------------------------------------------------------------------
   // Trading
   // -------------------------------------------------------------------------
 
@@ -3481,6 +3939,225 @@ export class Sim {
         this.tradeCancel(session.a);
       }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // The World Market — the Merchant's auction house
+  // -------------------------------------------------------------------------
+
+  private merchantEntity(): Entity | null {
+    const e = this.entities.get(this.merchantId);
+    return e && e.kind === 'npc' ? e : null;
+  }
+
+  private nearMerchant(e: Entity): boolean {
+    const m = this.merchantEntity();
+    return !!m && dist2d(e.pos, m.pos) <= MARKET_RANGE;
+  }
+
+  private metaByName(name: string): PlayerMeta | null {
+    if (!name) return null;
+    for (const m of this.players.values()) if (m.name === name) return m;
+    return null;
+  }
+
+  private collectionFor(key: string): MarketCollection {
+    let c = this.marketCollections.get(key);
+    if (!c) { c = { copper: 0, items: [] }; this.marketCollections.set(key, c); }
+    return c;
+  }
+
+  // The Merchant always keeps a little stock so the market is never empty —
+  // standing consignments that never expire, never deplete, and pay no one.
+  private seedHouseListings(): void {
+    const stock: { itemId: string; count: number; price: number }[] = [
+      { itemId: 'roasted_boar', count: 5, price: 700 },
+      { itemId: 'spring_water', count: 5, price: 160 },
+      { itemId: 'oiled_boots', count: 1, price: 1900 },
+      { itemId: 'quilted_trousers', count: 1, price: 2400 },
+      { itemId: 'greyjaw_pelt_cloak', count: 1, price: 2900 },
+    ];
+    for (const s of stock) {
+      if (!ITEMS[s.itemId]) continue;
+      this.marketListings.push({
+        id: this.nextListingId++, sellerKey: '', sellerName: 'The Merchant',
+        itemId: s.itemId, count: s.count, price: s.price, expiresAt: Infinity, house: true,
+      });
+    }
+  }
+
+  // List a stack from your bags for sale. The goods are escrowed (pulled from
+  // your bags immediately) and held by the Merchant until bought or reclaimed.
+  marketList(itemId: string, count: number, price: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const { meta, e: p } = r;
+    if (p.dead) return;
+    if (!this.nearMerchant(p)) { this.error(meta.entityId, 'You must bring your goods to the Merchant.'); return; }
+    const def = ITEMS[itemId];
+    if (!def) return;
+    if (def.kind === 'quest') { this.error(meta.entityId, 'The Merchant will not broker quest items.'); return; }
+    const want = Math.max(1, Math.floor(count));
+    if (this.countItem(itemId, meta.entityId) < want) { this.error(meta.entityId, 'You do not have that many to sell.'); return; }
+    const ask = Math.floor(price);
+    if (!Number.isFinite(ask) || ask < MARKET_MIN_PRICE) { this.error(meta.entityId, 'Name a price of at least 1 copper.'); return; }
+    if (ask > MARKET_MAX_PRICE) { this.error(meta.entityId, 'That price is beyond what the Merchant will broker.'); return; }
+    const mine = this.marketListings.reduce((n, l) => n + (!l.house && l.sellerKey === meta.name ? 1 : 0), 0);
+    if (mine >= MARKET_MAX_LISTINGS) { this.error(meta.entityId, `You may keep at most ${MARKET_MAX_LISTINGS} goods on the market at once.`); return; }
+    this.removeItem(itemId, want, meta.entityId); // escrow
+    this.marketListings.push({
+      id: this.nextListingId++, sellerKey: meta.name, sellerName: meta.name,
+      itemId, count: want, price: ask, expiresAt: this.time + MARKET_LISTING_DURATION, house: false,
+    });
+    this.emit({ type: 'loot', text: `Listed ${def.name}${want > 1 ? ' x' + want : ''} on the World Market for ${formatMoney(ask)}.`, pid: meta.entityId });
+  }
+
+  // Buy a listing outright. Coin leaves the buyer, goods enter their bags, and
+  // the seller's proceeds (less the Merchant's cut) wait in their collection.
+  marketBuy(listingId: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const { meta, e: p } = r;
+    if (p.dead) return;
+    if (!this.nearMerchant(p)) { this.error(meta.entityId, 'You are too far from the Merchant.'); return; }
+    const idx = this.marketListings.findIndex((l) => l.id === listingId);
+    if (idx < 0) { this.error(meta.entityId, 'That listing is no longer available.'); return; }
+    const listing = this.marketListings[idx];
+    const def = ITEMS[listing.itemId];
+    if (!def) { this.marketListings.splice(idx, 1); return; }
+    if (!listing.house && listing.sellerKey === meta.name) {
+      this.error(meta.entityId, 'That is your own listing — cancel it to reclaim it.');
+      return;
+    }
+    if (meta.copper < listing.price) { this.error(meta.entityId, 'You cannot afford that.'); return; }
+    meta.copper -= listing.price;
+    this.addItem(listing.itemId, listing.count, meta.entityId);
+    if (!listing.house) {
+      const proceeds = Math.max(0, Math.floor(listing.price * (1 - MARKET_CUT)));
+      this.collectionFor(listing.sellerKey).copper += proceeds;
+      this.marketListings.splice(idx, 1);
+      const sellerMeta = this.metaByName(listing.sellerKey);
+      if (sellerMeta) {
+        this.emit({ type: 'loot', text: `${meta.name} bought your ${def.name} for ${formatMoney(listing.price)} — collect ${formatMoney(proceeds)} from the Merchant.`, pid: sellerMeta.entityId });
+      }
+    }
+    this.emit({ type: 'loot', text: `Bought ${def.name}${listing.count > 1 ? ' x' + listing.count : ''} for ${formatMoney(listing.price)}.`, pid: meta.entityId });
+  }
+
+  // Reclaim your own listing; the escrowed goods go straight back to your bags.
+  marketCancel(listingId: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const { meta, e: p } = r;
+    if (!this.nearMerchant(p)) { this.error(meta.entityId, 'You are too far from the Merchant.'); return; }
+    const idx = this.marketListings.findIndex((l) => l.id === listingId);
+    if (idx < 0) return;
+    const listing = this.marketListings[idx];
+    if (listing.house || listing.sellerKey !== meta.name) { this.error(meta.entityId, 'That is not your listing.'); return; }
+    this.marketListings.splice(idx, 1);
+    this.addItem(listing.itemId, listing.count, meta.entityId);
+    const def = ITEMS[listing.itemId];
+    this.emit({ type: 'loot', text: `Reclaimed ${def?.name ?? listing.itemId}${listing.count > 1 ? ' x' + listing.count : ''} from the market.`, pid: meta.entityId });
+  }
+
+  // Take everything waiting for you at the Merchant: sale gold and any items
+  // returned from expired listings.
+  marketCollect(pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const { meta, e: p } = r;
+    if (!this.nearMerchant(p)) { this.error(meta.entityId, 'You are too far from the Merchant.'); return; }
+    const col = this.marketCollections.get(meta.name);
+    if (!col || (col.copper <= 0 && col.items.length === 0)) { this.error(meta.entityId, 'You have nothing to collect.'); return; }
+    if (col.copper > 0) {
+      meta.copper += col.copper;
+      this.emit({ type: 'loot', text: `You collect ${formatMoney(col.copper)} from the Merchant.`, pid: meta.entityId });
+    }
+    for (const s of col.items) this.addItem(s.itemId, s.count, meta.entityId);
+    this.marketCollections.delete(meta.name);
+  }
+
+  // Once a second: return expired player listings to their seller's collection.
+  private updateMarket(): void {
+    if (this.tickCount % 20 !== 0) return;
+    for (let i = this.marketListings.length - 1; i >= 0; i--) {
+      const l = this.marketListings[i];
+      if (l.house || this.time < l.expiresAt) continue;
+      this.marketListings.splice(i, 1);
+      this.collectionFor(l.sellerKey).items.push({ itemId: l.itemId, count: l.count });
+      const sellerMeta = this.metaByName(l.sellerKey);
+      if (sellerMeta) {
+        const def = ITEMS[l.itemId];
+        this.emit({ type: 'log', text: `Your market listing of ${def?.name ?? l.itemId} expired and waits at the Merchant.`, color: '#caa472', pid: sellerMeta.entityId });
+      }
+    }
+  }
+
+  marketInfoFor(pid: number): import('../world_api').MarketInfo | null {
+    const meta = this.players.get(pid);
+    const e = this.entities.get(pid);
+    if (!meta || !e) return null;
+    // the World Market is a place you visit — only stream it while standing by
+    // the Merchant, which also bounds the per-snapshot wire cost
+    if (!this.nearMerchant(e)) return null;
+    const sorted = [...this.marketListings].sort((a, b) => {
+      const na = ITEMS[a.itemId]?.name ?? a.itemId;
+      const nb = ITEMS[b.itemId]?.name ?? b.itemId;
+      return na.localeCompare(nb) || a.price - b.price;
+    });
+    const listings = sorted.slice(0, MARKET_WIRE_LIMIT).map((l) => ({
+      id: l.id, sellerName: l.sellerName, itemId: l.itemId, count: l.count,
+      price: l.price, mine: !l.house && l.sellerKey === meta.name, house: l.house,
+    }));
+    const col = this.marketCollections.get(meta.name);
+    const myListingCount = this.marketListings.reduce((n, l) => n + (!l.house && l.sellerKey === meta.name ? 1 : 0), 0);
+    return {
+      listings,
+      collectionCopper: col?.copper ?? 0,
+      collectionItems: col ? col.items.map((s) => ({ ...s })) : [],
+      cutPct: Math.round(MARKET_CUT * 100),
+      maxListings: MARKET_MAX_LISTINGS,
+      myListingCount,
+    };
+  }
+
+  // Persist only player listings + collections; house stock is reseeded each
+  // boot so content edits take effect. secondsLeft survives the time reset.
+  serializeMarket(): MarketSave {
+    return {
+      listings: this.marketListings.filter((l) => !l.house).map((l) => ({
+        id: l.id, sellerKey: l.sellerKey, sellerName: l.sellerName, itemId: l.itemId,
+        count: l.count, price: l.price,
+        secondsLeft: Number.isFinite(l.expiresAt) ? Math.max(0, Math.round(l.expiresAt - this.time)) : MARKET_LISTING_DURATION,
+      })),
+      collections: [...this.marketCollections.entries()].map(([key, c]) => ({
+        key, copper: c.copper, items: c.items.map((s) => ({ ...s })),
+      })),
+      nextListingId: this.nextListingId,
+    };
+  }
+
+  loadMarket(save: MarketSave | null | undefined): void {
+    if (!save) return;
+    for (const l of save.listings ?? []) {
+      if (!l || typeof l.itemId !== 'string' || !ITEMS[l.itemId]) continue;
+      this.marketListings.push({
+        id: l.id, sellerKey: String(l.sellerKey ?? ''), sellerName: String(l.sellerName ?? l.sellerKey ?? '?'),
+        itemId: l.itemId, count: Math.max(1, l.count | 0),
+        price: Math.max(MARKET_MIN_PRICE, Math.min(MARKET_MAX_PRICE, Math.floor(l.price) || MARKET_MIN_PRICE)),
+        expiresAt: this.time + (Number.isFinite(l.secondsLeft) ? Math.max(0, l.secondsLeft) : MARKET_LISTING_DURATION),
+        house: false,
+      });
+    }
+    for (const c of save.collections ?? []) {
+      if (!c || typeof c.key !== 'string') continue;
+      this.marketCollections.set(c.key, {
+        copper: Math.max(0, Math.floor(c.copper) || 0),
+        items: (c.items ?? []).filter((s) => s && ITEMS[s.itemId]).map((s) => ({ itemId: s.itemId, count: Math.max(1, s.count | 0) })),
+      });
+    }
+    const maxId = this.marketListings.reduce((m, l) => Math.max(m, l.id + 1), 1);
+    this.nextListingId = Math.max(this.nextListingId, save.nextListingId ?? 1, maxId);
   }
 
   // -------------------------------------------------------------------------
@@ -3656,7 +4333,7 @@ export class Sim {
         return meta && e ? [{
           pid: mPid, name: meta.name, cls: meta.cls, level: e.level,
           hp: e.hp, mhp: e.maxHp, res: Math.round(e.resource), mres: e.maxResource, rtype: e.resourceType,
-          x: e.pos.x, z: e.pos.z, dead: e.dead ? 1 : 0,
+          x: e.pos.x, z: e.pos.z, dead: e.dead ? 1 : 0, inCombat: e.inCombat ? 1 : 0,
         }] : [];
       }),
     };
@@ -3682,6 +4359,14 @@ export class Sim {
     if (!d) return null;
     const otherPid = d.a === this.primaryId ? d.b : d.a;
     return { otherPid, otherName: this.players.get(otherPid)?.name ?? '?', state: d.state };
+  }
+
+  get arenaInfo(): import('../world_api').ArenaInfo | null {
+    return this.primaryId === -1 ? null : this.arenaInfoFor(this.primaryId);
+  }
+
+  get marketInfo(): import('../world_api').MarketInfo | null {
+    return this.primaryId === -1 ? null : this.marketInfoFor(this.primaryId);
   }
 
   instanceSlotAt(pos: Vec3): number | null {

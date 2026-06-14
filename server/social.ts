@@ -417,8 +417,8 @@ export class SocialService {
     }
     if (targetMembership.rank === rank) { this.err(actor.characterId, `${target.name} is already ${RANK_LABEL[rank]}.`); return; }
     await this.db.setGuildRank(target.id, rank);
-    this.broadcastGuild(membership.guildId, [{ type: 'log', text: `${target.name} is now ${RANK_LABEL[rank]}.`, color: '#40ff7f' }]);
-    this.pushGuild(membership.guildId);
+    await this.broadcastGuild(membership.guildId, [{ type: 'log', text: `${target.name} is now ${RANK_LABEL[rank]}.`, color: '#40ff7f' }]);
+    await this.pushGuild(membership.guildId);
   }
 
   async guildChat(actor: SocialActor, rawText: string): Promise<boolean> {
@@ -447,18 +447,16 @@ export class SocialService {
   }
 
   // Deliver events to every online member of a guild.
-  private broadcastGuild(guildId: number, events: SocialEvent[]): void {
-    void this.db.guildMembers(guildId).then((members) => {
-      for (const m of members) {
-        if (this.tx.isOnline(m.id)) this.tx.deliver(m.id, events);
-      }
-    });
+  private async broadcastGuild(guildId: number, events: SocialEvent[]): Promise<void> {
+    const members = await this.db.guildMembers(guildId);
+    for (const m of members) {
+      if (this.tx.isOnline(m.id)) this.tx.deliver(m.id, events);
+    }
   }
 
-  private pushGuild(guildId: number): void {
-    void this.db.guildMembers(guildId).then((members) => {
-      for (const m of members) if (this.tx.isOnline(m.id)) this.push(m.id);
-    });
+  private async pushGuild(guildId: number): Promise<void> {
+    const members = await this.db.guildMembers(guildId);
+    for (const m of members) if (this.tx.isOnline(m.id)) this.push(m.id);
   }
 
   // Drop a character's pending invite when they disconnect.

@@ -14,6 +14,7 @@ export interface PartyMemberInfo {
   x: number;
   z: number;
   dead: number;
+  inCombat: number;
 }
 
 export interface PartyInfo {
@@ -80,6 +81,58 @@ export interface CharacterSearchResult {
   level: number;
 }
 
+export interface ArenaLadderEntry {
+  pid: number;
+  name: string;
+  cls: PlayerClass;
+  rating: number;
+  wins: number;
+  losses: number;
+}
+
+export interface ArenaInfo {
+  rating: number;
+  wins: number;
+  losses: number;
+  queued: boolean;
+  queueSize: number;
+  // present only while in a match
+  match: {
+    state: 'countdown' | 'active';
+    oppName: string;
+    oppClass: PlayerClass;
+    oppLevel: number;
+    oppPid: number;
+  } | null;
+  // live standings of rated players currently online, best first
+  ladder: ArenaLadderEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// The World Market (the Merchant's auction house). Listings are global and
+// shared by every player; collections are the per-player gold + items waiting
+// to be picked up (sale proceeds, expired/returned listings).
+// ---------------------------------------------------------------------------
+
+export interface MarketListingView {
+  id: number;
+  sellerName: string;
+  itemId: string;
+  count: number;
+  price: number; // total copper buyout for the whole stack
+  mine: boolean; // the viewer is the seller (offer them Cancel, not Buy)
+  house: boolean; // the Merchant's own standing stock
+}
+
+export interface MarketInfo {
+  listings: MarketListingView[];
+  collectionCopper: number; // proceeds waiting to be collected
+  collectionItems: InvSlot[]; // returned/expired items waiting to be collected
+  cutPct: number; // the Merchant's cut on a sale, as a percentage
+  maxListings: number; // per-seller active-listing cap
+  myListingCount: number; // how many active listings the viewer already has
+}
+
 // The surface the renderer + HUD need from a game world. The offline `Sim`
 // satisfies this structurally; the online `ClientWorld` implements it by
 // mirroring server snapshots and sending commands over the socket.
@@ -119,6 +172,8 @@ export interface IWorld {
   partyInfo: PartyInfo | null;
   tradeInfo: TradeInfo | null;
   duelInfo: DuelInfo | null;
+  arenaInfo: ArenaInfo | null;
+  marketInfo: MarketInfo | null;
   partyInvite(targetPid: number): void;
   partyAccept(): void;
   partyDecline(): void;
@@ -152,6 +207,13 @@ export interface IWorld {
   guildDisband(): void;
   // realm-scoped username typeahead for friend/ignore/guild search
   searchCharacters(query: string): Promise<CharacterSearchResult[]>;
+  arenaQueueJoin(): void;
+  arenaQueueLeave(): void;
+  // World Market
+  marketList(itemId: string, count: number, price: number): void;
+  marketBuy(listingId: number): void;
+  marketCancel(listingId: number): void;
+  marketCollect(): void;
   enterDungeon(dungeonId: string): void;
   leaveDungeon(): void;
 }

@@ -9,12 +9,21 @@ import { Keybinds, actionKind } from './keybinds';
 // the camera sensitivity that used to be hard-coded in onMouseMove; the
 // settings slider scales this (cameraSpeed 1.0 reproduces the old feel)
 const BASE_LOOK_SENS = 0.0045;
+const TOUCH_LOOK_YAW_RATE = 3.2;
+const TOUCH_LOOK_PITCH_RATE = 2.2;
 
 export interface InputCallbacks {
   onTab(): void;
   onAbility(slot: number): void;
-  onUiKey(key: 'interact' | 'bags' | 'char' | 'spellbook' | 'questlog' | 'map' | 'nameplates' | 'escape' | 'chat' | 'meters' | 'social'): void;
+  onUiKey(key: 'interact' | 'bags' | 'char' | 'spellbook' | 'questlog' | 'map' | 'nameplates' | 'escape' | 'chat' | 'meters' | 'social' | 'arena'): void;
   onClickPick(x: number, y: number, button: number): void;
+}
+
+export interface TouchMoveInput {
+  forward: boolean;
+  back: boolean;
+  strafeLeft: boolean;
+  strafeRight: boolean;
 }
 
 export class Input {
@@ -36,6 +45,9 @@ export class Input {
   // mouse-look sensitivity, in radians per pixel of drag; the old fixed value
   // was BASE_LOOK_SENS — setCameraSpeed scales it from the settings menu
   private lookSensitivity = BASE_LOOK_SENS;
+  private touchMove: TouchMoveInput = { forward: false, back: false, strafeLeft: false, strafeRight: false };
+  private touchLookActive = false;
+  private touchLookVector = { x: 0, y: 0 };
 
   constructor(private canvas: HTMLCanvasElement, private cb: InputCallbacks, private keybinds: Keybinds) {
     window.addEventListener('keydown', (e) => this.onKeyDown(e));
@@ -59,6 +71,38 @@ export class Input {
   /** Scale mouse-look sensitivity. 1.0 = the original fixed speed. */
   setCameraSpeed(mult: number): void {
     this.lookSensitivity = BASE_LOOK_SENS * mult;
+  }
+
+  setTouchMove(move: TouchMoveInput): void {
+    this.touchMove = move;
+    if (move.forward || move.back) this.autorun = false;
+  }
+
+  clearTouchMove(): void {
+    this.touchMove = { forward: false, back: false, strafeLeft: false, strafeRight: false };
+  }
+
+  setTouchLook(active: boolean): void {
+    this.touchLookActive = active;
+  }
+
+  setTouchLookVector(v: { x: number; y: number }): void {
+    this.touchLookVector = v;
+  }
+
+  applyTouchLookDelta(dx: number, dy: number): void {
+    this.camYaw -= dx * this.lookSensitivity;
+    this.camPitch = Math.min(1.35, Math.max(-0.4, this.camPitch + dy * this.lookSensitivity));
+  }
+
+  updateTouchLook(dt: number): void {
+    if (!this.touchLookActive) return;
+    this.camYaw -= this.touchLookVector.x * TOUCH_LOOK_YAW_RATE * dt;
+    this.camPitch = Math.min(1.35, Math.max(-0.4, this.camPitch + this.touchLookVector.y * TOUCH_LOOK_PITCH_RATE * dt));
+  }
+
+  isMouselookActive(): boolean {
+    return this.rightDown || this.touchLookActive;
   }
 
   private onKeyDown(e: KeyboardEvent): void {
@@ -103,6 +147,7 @@ export class Input {
       case 'nameplates': this.cb.onUiKey('nameplates'); return;
       case 'meters': this.cb.onUiKey('meters'); return;
       case 'social': this.cb.onUiKey('social'); return;
+      case 'arena': this.cb.onUiKey('arena'); return;
       case 'chat': this.cb.onUiKey('chat'); return;
     }
   }
@@ -146,14 +191,14 @@ export class Input {
     const k = this.keys;
     const held = (id: string) => this.keybinds.codesForAction(id).some((c) => k.has(c));
     const bothButtons = this.leftDown && this.rightDown;
-    const mouselook = this.rightDown;
+    const mouselook = this.isMouselookActive();
     // A/D (turn) double as strafe while mouselooking, matching WoW; Q/E always strafe
     const aHeld = held('turnLeft');
     const dHeld = held('turnRight');
-    const forward = held('forward') || bothButtons || this.autorun;
-    const back = held('back');
-    const strafeLeft = held('strafeLeft') || (mouselook && aHeld);
-    const strafeRight = held('strafeRight') || (mouselook && dHeld);
+    const forward = held('forward') || bothButtons || this.autorun || this.touchMove.forward;
+    const back = held('back') || this.touchMove.back;
+    const strafeLeft = held('strafeLeft') || (mouselook && aHeld) || this.touchMove.strafeLeft;
+    const strafeRight = held('strafeRight') || (mouselook && dHeld) || this.touchMove.strafeRight;
     const turnLeft = !mouselook && aHeld;
     const turnRight = !mouselook && dHeld;
     const jump = held('jump');

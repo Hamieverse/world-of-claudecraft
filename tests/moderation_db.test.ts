@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../server/db', () => ({
-  pool: { query: vi.fn() },
+  pool: { query: vi.fn(), connect: vi.fn() },
 }));
 
 import { pool } from '../server/db';
@@ -11,9 +11,20 @@ import {
 } from '../server/moderation_db';
 
 const query = vi.mocked(pool.query);
+const connect = vi.mocked(pool.connect);
+
+// A pooled-client stub whose query()/release() calls we can inspect. Pinning a
+// single client for the whole transaction is what makes BEGIN/…/COMMIT atomic,
+// so the tests assert every transactional statement runs through this stub.
+function clientStub() {
+  const cquery = vi.fn().mockResolvedValue({ rows: [] } as any);
+  const release = vi.fn();
+  return { query: cquery, release };
+}
 
 beforeEach(() => {
   query.mockReset();
+  connect.mockReset();
 });
 
 describe('moderation report helpers', () => {
@@ -122,21 +133,40 @@ describe('moderation report helpers', () => {
   });
 
   it('marks a character for forced rename and action-resolves its reports', async () => {
-    query
-      .mockResolvedValueOnce({ rows: [{ account_id: 2 }] } as any)
-      .mockResolvedValueOnce({ rows: [] } as any)
-      .mockResolvedValueOnce({ rows: [] } as any)
-      .mockResolvedValueOnce({ rows: [] } as any)
-      .mockResolvedValueOnce({ rows: [] } as any)
-      .mockResolvedValueOnce({ rows: [] } as any);
+    query.mockResolvedValueOnce({ rows: [{ account_id: 2 }] } as any);
+    const client = clientStub();
+    connect.mockResolvedValue(client as any);
 
     const result = await forceCharacterRename({ characterId: 20, adminAccountId: 1, reason: 'offensive name' });
 
     expect(result).toEqual({ accountId: 2 });
-    expect(query.mock.calls[1][0]).toBe('BEGIN');
-    expect(query.mock.calls[2][0]).toMatch(/UPDATE characters SET force_rename = TRUE/);
-    expect(query.mock.calls[3][0]).toMatch(/account_moderation_actions/);
-    expect(query.mock.calls[4][0]).toMatch(/UPDATE player_reports/);
-    expect(query.mock.calls[5][0]).toBe('COMMIT');
+    // The whole transaction must run on one pinned client, not arbitrary pooled
+    // connections, otherwise BEGIN/…/COMMIT are not actually atomic.
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(client.query.mock.calls[0][0]).toBe('BEGIN');
+    expect(client.query.mock.calls[1][0]).toMatch(/UPDATE characters SET force_rename = TRUE/);
+    expect(client.query.mock.calls[2][0]).toMatch(/account_moderation_actions/);
+    expect(client.query.mock.calls[3][0]).toMatch(/UPDATE player_reports/);
+    expect(client.query.mock.calls[4][0]).toBe('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back on the pinned client and releases it when a statement fails', async () => {
+    query.mockResolvedValueOnce({ rows: [{ account_id: 2 }] } as any);
+    const client = clientStub();
+    client.query
+      .mockResolvedValueOnce({ rows: [] } as any) // BEGIN
+      .mockRejectedValueOnce(new Error('db down')) // first UPDATE fails
+      .mockResolvedValue({ rows: [] } as any); // ROLLBACK
+    connect.mockResolvedValue(client as any);
+
+    await expect(
+      forceCharacterRename({ characterId: 20, adminAccountId: 1, reason: 'offensive name' }),
+    ).rejects.toThrow(/db down/);
+
+    const stmts = client.query.mock.calls.map((c) => c[0]);
+    expect(stmts).toContain('ROLLBACK');
+    expect(stmts).not.toContain('COMMIT');
+    expect(client.release).toHaveBeenCalledTimes(1);
   });
 });

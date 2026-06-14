@@ -96,13 +96,14 @@ export async function moderationQueue(onlineAccountIds: Set<number>): Promise<Mo
      GROUP BY a.id
      ORDER BY count(r.id) DESC, max(r.created_at) DESC`,
   );
-  return res.rows.map((r) => {
+  return res.rows.map((r): ModerationQueueRow => {
     const suspendedUntil = r.suspended_until ? new Date(r.suspended_until).toISOString() : null;
     const activeSuspension = suspendedUntil !== null && new Date(suspendedUntil).getTime() > Date.now();
+    const status: ModerationQueueRow['status'] = r.banned_at ? 'banned' : activeSuspension ? 'suspended' : 'active';
     return {
       accountId: r.account_id,
       username: r.username,
-      status: r.banned_at ? 'banned' : activeSuspension ? 'suspended' : 'active',
+      status,
       suspendedUntil,
       openReports: r.open_reports,
       latestReportAt: new Date(r.latest_report_at).toISOString(),
@@ -206,38 +207,45 @@ export async function moderateAccount(input: {
       throw new Error('suspension expiry must be in the future');
     }
   }
-  await pool.query('BEGIN');
+  // Pin a single pooled client so BEGIN/…/COMMIT run on the same connection and
+  // the moderation write is actually atomic. Issuing these through pool.query()
+  // can spread them across different connections, leaving a partially-applied
+  // action (e.g. account banned but audit row / report resolution missing).
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
     if (input.action === 'ban') {
-      await pool.query(
+      await client.query(
         `UPDATE accounts
          SET banned_at = now(), suspended_until = NULL, moderation_reason = $2
          WHERE id = $1`,
         [input.accountId, reason],
       );
     } else {
-      await pool.query(
+      await client.query(
         `UPDATE accounts
          SET suspended_until = $2, moderation_reason = $3
          WHERE id = $1`,
         [input.accountId, expiresAt!.toISOString(), reason],
       );
     }
-    await pool.query(
+    await client.query(
       `INSERT INTO account_moderation_actions (account_id, admin_account_id, action, reason, expires_at)
        VALUES ($1, $2, $3, $4, $5)`,
       [input.accountId, input.adminAccountId, input.action, reason, expiresAt ? expiresAt.toISOString() : null],
     );
-    await pool.query(
+    await client.query(
       `UPDATE player_reports
        SET status = 'actioned', reviewed_at = now(), reviewed_by_account_id = $2, review_note = $3
        WHERE reported_account_id = $1 AND status = 'open'`,
       [input.accountId, input.adminAccountId, reason],
     );
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
   } catch (err) {
-    await pool.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -251,24 +259,29 @@ export async function forceCharacterRename(input: {
   const character = await pool.query('SELECT account_id FROM characters WHERE id = $1', [input.characterId]);
   const accountId = character.rows[0]?.account_id;
   if (!accountId) throw new Error('character not found');
-  await pool.query('BEGIN');
+  // Pin a single pooled client so the whole transaction is atomic; see the note
+  // in moderateAccount above.
+  const client = await pool.connect();
   try {
-    await pool.query('UPDATE characters SET force_rename = TRUE WHERE id = $1', [input.characterId]);
-    await pool.query(
+    await client.query('BEGIN');
+    await client.query('UPDATE characters SET force_rename = TRUE WHERE id = $1', [input.characterId]);
+    await client.query(
       `INSERT INTO account_moderation_actions (account_id, admin_account_id, action, reason)
        VALUES ($1, $2, 'force_rename', $3)`,
       [accountId, input.adminAccountId, reason],
     );
-    await pool.query(
+    await client.query(
       `UPDATE player_reports
        SET status = 'actioned', reviewed_at = now(), reviewed_by_account_id = $2, review_note = $3
        WHERE reported_character_id = $1 AND status = 'open'`,
       [input.characterId, input.adminAccountId, reason],
     );
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
     return { accountId };
   } catch (err) {
-    await pool.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw err;
+  } finally {
+    client.release();
   }
 }

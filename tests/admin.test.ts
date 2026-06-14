@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 
 // Mock the db layers so no Postgres is needed; the router logic is under test.
 vi.mock('../server/db', () => ({
-  pool: { query: vi.fn() },
+  pool: { query: vi.fn(async () => ({ rows: [] })) },
   findAccount: vi.fn(),
   touchLogin: vi.fn(),
   saveToken: vi.fn(),
