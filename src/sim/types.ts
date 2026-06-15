@@ -9,6 +9,9 @@ export const INTERACT_RANGE = 5;
 export const GCD = 1.5; // seconds
 export const CAST_PUSHBACK_SEC = 0.5; // vanilla: each hit delays a cast by 0.5s
 export const CHANNEL_PUSHBACK_FRACTION = 0.25; // vanilla: each hit shaves 25% off a channel
+export const FISHING_CAST_ID = 'fishing';
+export const FISHING_CAST_NAME = 'Fishing';
+export const FISHING_CAST_TIME = 5;
 
 export type PlayerClass =
   | 'warrior' | 'paladin' | 'hunter' | 'rogue' | 'priest'
@@ -51,6 +54,13 @@ export interface Aura {
   stacks?: number; // sunder armor: applications stack up to the effect's cap
 }
 
+export type CrowdControlDrCategory = 'root';
+
+export interface CrowdControlDrState {
+  stage: number;
+  resetAt: number;
+}
+
 export interface Stats {
   str: number;
   agi: number;
@@ -69,19 +79,26 @@ export interface WeaponInfo {
 
 export type EquipSlot = 'mainhand' | 'chest' | 'legs' | 'feet';
 
+export type ItemUse =
+  | { type: 'fishing' };
+
 export interface ItemDef {
   id: string;
   name: string;
-  kind: 'weapon' | 'armor' | 'quest' | 'junk' | 'food' | 'drink';
+  kind: 'weapon' | 'armor' | 'quest' | 'junk' | 'food' | 'drink' | 'tool' | 'potion';
   slot?: EquipSlot;
   weapon?: WeaponInfo;
   stats?: Partial<Stats>;
+  use?: ItemUse;
   sellValue: number; // copper (vendor buys at this)
   buyValue?: number; // copper (vendor sells at this)
   questId?: string;
   // consumables: total restored over 18 seconds while sitting
   foodHp?: number;
   drinkMana?: number;
+  // potions: restored instantly, usable in combat, share a cooldown (#103)
+  potionHp?: number;
+  potionMana?: number;
   quality?: 'poor' | 'common' | 'uncommon' | 'rare' | 'epic'; // gray/white/green/blue/purple name colors
   requiredClass?: PlayerClass[];
 }
@@ -91,13 +108,23 @@ export interface InvSlot {
   count: number;
 }
 
+export interface LootSlot extends InvSlot {
+  // Quest corpse loot can be personal: each listed player can take one copy.
+  personalFor?: number[];
+}
+
+export interface CorpseLoot {
+  copper: number;
+  items: LootSlot[];
+}
+
 export interface LootEntry {
   itemId?: string;
   copper?: number;
   chance: number; // 0..1
   questId?: string; // only drops while this quest is active and not complete
   // Entries sharing a rollGroup are exclusive: one rng draw is partitioned by
-  // their chances so exactly one drops (group chances should sum to 1.0).
+  // their chances, so at most one matching entry drops.
   rollGroup?: string;
 }
 
@@ -126,8 +153,12 @@ export interface MobTemplate {
   rare?: boolean;
   // Elite scaling, vanilla-style: ~2.3x health, ~1.5x damage, double XP.
   elite?: boolean;
+  // Rare/miniboss controls.
+  canSwim?: boolean;
+  ccImmune?: boolean;
+  respawnMult?: number;
   // Boss mechanic: periodic AoE pulse around the mob while in combat.
-  aoePulse?: { min: number; max: number; radius: number; every: number; name: string };
+  aoePulse?: { min: number; max: number; radius: number; every: number; name: string; school?: string; fx?: 'nova' | 'projectile' };
   // Boss mechanic: spawn adds when hp first drops below each threshold (descending fractions).
   summonAdds?: { mobId: string; count: number; atHpPct: number[] };
   // Boss mechanic: damage multiplier once hp drops below the threshold.
@@ -400,6 +431,7 @@ export interface Entity {
   inCombat: boolean;
   combatTimer: number; // time since last combat event
   auras: Aura[];
+  ccDr: Map<CrowdControlDrCategory, CrowdControlDrState>;
   castingAbility: string | null;
   castRemaining: number;
   castTotal: number;
@@ -413,6 +445,7 @@ export interface Entity {
   comboPoints: number;
   comboTargetId: number | null;
   overpowerUntil: number; // sim-time until which overpower is usable
+  potionCooldownUntil: number; // sim-time until a combat potion can be used again (#103)
   // warrior charge: forced run toward the target along a pathfound route
   chargeTargetId: number | null;
   chargeTimeLeft: number; // seconds; failsafe so a blocked charge can't run forever
@@ -437,6 +470,8 @@ export interface Entity {
   summonedIds: number[]; // live adds this boss summoned; despawned on reset
   enraged: boolean; // enrage mechanic active
   spawnPos: Vec3;
+  leashAnchor: Vec3 | null; // refreshed by hostile player/pet actions; spawnPos remains the true home
+  evadeStall: number; // seconds an evading mob has failed to get closer to home; snaps it home if it can't path back (e.g. across water)
   wanderTarget: Vec3 | null;
   wanderTimer: number;
   aggroTargetId: number | null;
@@ -446,7 +481,7 @@ export interface Entity {
   respawnTimer: number;
   corpseTimer: number;
   lootable: boolean;
-  loot: { copper: number; items: InvSlot[] } | null;
+  loot: CorpseLoot | null;
   xpValue: number;
   // npc
   questIds: string[];
@@ -481,7 +516,7 @@ export type SimEvent = { pid?: number } & (
   | { type: 'comboPoint'; points: number }
   | { type: 'playerDeath' }
   | { type: 'respawn' }
-  | { type: 'vendor'; action: 'buy' | 'sell'; itemId: string }
+  | { type: 'vendor'; action: 'buy' | 'sell' | 'buyback'; itemId: string }
   // say/yell are delivered only to players in range and carry the speaker's
   // entity id so the client can hang a chat bubble over their head; whisper
   // goes to the target (and echoes to the sender with `to` set); general is

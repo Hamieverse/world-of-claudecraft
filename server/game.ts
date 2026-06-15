@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import { Sim } from '../src/sim/sim';
 import type { PlayerMeta } from '../src/sim/sim';
 import { DT, Entity, SimEvent, dist2d } from '../src/sim/types';
+import { parseMoveInputFrame } from '../src/sim/move_input';
 import { stealthDetectionRadius, threatEntries } from '../src/sim/threat';
 import { zoneAt, DUNGEONS } from '../src/sim/data';
 import { saveCharacterState, openPlaySession, closePlaySession, insertChatLogs, pool, loadMarketState, saveMarketState } from './db';
@@ -36,11 +37,13 @@ const QUARTER_RATE_DIVISOR = 4;
 const WIRE_CACHE_SWEEP_TICKS = 1200;
 const EVENT_RADIUS = 90;
 const AUTOSAVE_SECONDS = 30;
+const SAVE_CONCURRENCY = 4;
 const CHAT_RATE_BURST = 5;
 const CHAT_RATE_REFILL_PER_SECOND = 1 / 3; // sustained 20 messages/minute
 const CHAT_RATE_ERROR_COOLDOWN_SECONDS = 4;
 const CHAT_COOLDOWN_SECONDS = 20;
 const CHAT_RATE_VIOLATIONS_FOR_COOLDOWN = 3;
+const WHO_RESULT_LIMIT = 50;
 // Exponential moving average weight for the per-tick duration stat.
 const TICK_EMA_ALPHA = 0.05;
 
@@ -62,8 +65,11 @@ export interface ClientSession {
   // character ids this player has ignored; chat from them is dropped before
   // delivery. Loaded from the DB on join, kept in sync by social commands.
   blockedIds: Set<number>;
+  blockListLoaded: boolean;
   // name of the last player to whisper this session, for WoW's /r reply
   lastWhisperFrom: string | null;
+  // last explicit channel this player sent to; plain text follows it.
+  rememberedChat: RememberedChat;
   // serialized form of each delta self field as last sent to this client;
   // a field is omitted from a snapshot while its serialization is unchanged
   lastSent: Record<string, string>;
@@ -117,6 +123,18 @@ interface WireAura {
   rem: number;
   dur: number;
 }
+
+interface WhoRosterRow {
+  name: string;
+  cls: string;
+  level: number;
+  zone: string;
+  status: PresenceStatus;
+}
+
+type RememberedChat =
+  | { channel: 'say' | 'yell' | 'general' | 'party' | 'guild' | 'officer' }
+  | { channel: 'whisper'; target: string };
 
 // Identity fields rarely change, so they ride only in "full" records: on an
 // entity's first snapshot for a session and again whenever one of them
@@ -285,6 +303,7 @@ export class GameServer {
   private lastWireSweepTick = 0;
   private interval: NodeJS.Timeout | null = null;
   private saveTimer = 0;
+  private saveAllInFlight: Promise<void> | null = null;
   private readonly startedAt = Date.now();
   private peakOnline = 0;
   private tickMsAvg = 0;
@@ -410,7 +429,9 @@ export class GameServer {
       chatTokens: CHAT_RATE_BURST, chatLastRefill: Date.now() / 1000, chatLastRateError: 0,
       chatRateViolations: 0, chatCooldownUntil: 0,
       blockedIds: new Set(),
+      blockListLoaded: false,
       lastWhisperFrom: null,
+      rememberedChat: { channel: 'say' },
       lastSent: {},
       sentEnts: new Map(),
     };
@@ -439,6 +460,7 @@ export class GameServer {
   private async initSocial(session: ClientSession): Promise<void> {
     try {
       session.blockedIds = new Set(await this.socialDb.blockedIds(session.characterId));
+      session.blockListLoaded = true;
     } catch (err) {
       console.error('failed to load block list:', err);
     }
@@ -473,9 +495,31 @@ export class GameServer {
   }
 
   async saveAll(reason: string): Promise<void> {
-    for (const session of this.clients.values()) {
-      await this.saveCharacter(session).catch((err) => console.error(`${reason} failed for ${session.name}:`, err));
+    while (this.saveAllInFlight) {
+      const inFlight = this.saveAllInFlight;
+      if (reason !== 'shutdown') return;
+      await inFlight;
     }
+    const run = this.saveAllSnapshot(reason);
+    this.saveAllInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (this.saveAllInFlight === run) this.saveAllInFlight = null;
+    }
+  }
+
+  private async saveAllSnapshot(reason: string): Promise<void> {
+    const sessions = [...this.clients.values()];
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const session = sessions[next++];
+        if (!session) return;
+        await this.saveCharacter(session).catch((err) => console.error(`${reason} failed for ${session.name}:`, err));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(SAVE_CONCURRENCY, sessions.length) }, worker));
   }
 
   // The World Market is shared global state, persisted as a single JSONB blob.
@@ -600,16 +644,10 @@ export class GameServer {
       const meta = sim.meta(pid);
       const e = sim.entities.get(pid);
       if (!meta || !e) return;
-      const mi = msg.mi ?? {};
-      meta.moveInput.forward = !!mi.f;
-      meta.moveInput.back = !!mi.b;
-      meta.moveInput.turnLeft = !!mi.tl;
-      meta.moveInput.turnRight = !!mi.tr;
-      meta.moveInput.strafeLeft = !!mi.sl;
-      meta.moveInput.strafeRight = !!mi.sr;
-      meta.moveInput.jump = !!mi.j;
-      if (typeof msg.facing === 'number' && isFinite(msg.facing) && !e.dead) {
-        e.facing = msg.facing;
+      const { moveInput, facing } = parseMoveInputFrame(msg);
+      Object.assign(meta.moveInput, moveInput);
+      if (facing !== null && !e.dead) {
+        e.facing = facing;
       }
       return;
     }
@@ -631,19 +669,30 @@ export class GameServer {
       case 'equip': if (typeof msg.item === 'string') sim.equipItem(msg.item, pid); break;
       case 'use': if (typeof msg.item === 'string') sim.useItem(msg.item, pid); break;
       case 'buy': if (typeof msg.npc === 'number' && typeof msg.item === 'string') sim.buyItem(msg.npc, msg.item, pid); break;
-      case 'sell': if (typeof msg.item === 'string') sim.sellItem(msg.item, pid); break;
+      case 'sell':
+        if (typeof msg.item === 'string') {
+          sim.sellItem(msg.item, typeof msg.count === 'number' ? msg.count : undefined, pid);
+        }
+        break;
+      case 'buyback': if (typeof msg.item === 'string') sim.buyBackItem(msg.item, pid); break;
       case 'release': sim.releaseSpirit(pid); break;
       case 'chat': {
         if (typeof msg.text !== 'string') break;
         if (!this.consumeChatToken(session)) break;
         const text = msg.text.trim();
+        if (/^\/who(?:\s|$)/i.test(text)) {
+          this.sendWhoRoster(session);
+          break;
+        }
         // guild and officer chat are persistent + cross-zone, so they live in
-        // the server's SocialService rather than the sim (no guild concept)
-        const gm = /^\/(?:gu|guild)\s+([\s\S]+)$/i.exec(text);
+        // the server's SocialService rather than the sim (no guild concept).
+        // MMO convention: /g is guild; /general remains world chat.
+        const gm = /^\/(?:g|gu|guild)\s+([\s\S]+)$/i.exec(text);
         const om = gm ? null : /^\/(?:o|officer)\s+([\s\S]+)$/i.exec(text);
         if (gm || om) {
           const channel = gm ? 'guild' : 'officer';
           const body = censorChatText((gm ?? om!)[1]);
+          session.rememberedChat = { channel };
           const route = gm ? this.social.guildChat(this.actorFor(session), body)
             : this.social.officerChat(this.actorFor(session), body);
           void route.then((sent) => {
@@ -663,10 +712,11 @@ export class GameServer {
             this.send(session, { t: 'events', list: [{ type: 'error', text: 'No one has whispered you recently.' }] });
             break;
           }
+          session.rememberedChat = { channel: 'whisper', target: session.lastWhisperFrom };
           this.logChat(session, sim.chat(`/w ${session.lastWhisperFrom} ${censorChatText(rm[1])}`, pid));
           break;
         }
-        this.logChat(session, sim.chat(censorChatText(msg.text), pid));
+        this.logChat(session, this.routeRememberedChat(session, text, pid));
         break;
       }
       // party
@@ -675,6 +725,9 @@ export class GameServer {
       case 'pdecline': sim.partyDecline(pid); break;
       case 'pleave': sim.partyLeave(pid); break;
       case 'pkick': if (typeof msg.id === 'number') sim.partyKick(msg.id, pid); break;
+      // raid/target markers
+      case 'setMarker': if (typeof msg.id === 'number' && typeof msg.marker === 'number') sim.setMarker(msg.id, msg.marker, pid); break;
+      case 'clearMarker': if (typeof msg.id === 'number') sim.clearMarker(msg.id, pid); break;
       // trade
       case 'trade_req': if (typeof msg.id === 'number') sim.tradeRequest(msg.id, pid); break;
       case 'trade_accept': sim.tradeAccept(pid); break;
@@ -912,6 +965,7 @@ export class GameServer {
       }
     };
     maybe('inv', meta.inventory);
+    maybe('buyback', meta.vendorBuyback);
     maybe('equip', meta.equipment);
     maybe('qlog', [...meta.questLog.values()]);
     maybe('qdone', [...meta.questsDone]);
@@ -919,6 +973,7 @@ export class GameServer {
     maybe('stats', p.stats);
     maybe('weapon', p.weapon);
     maybe('party', this.partyWire(session.pid));
+    maybe('marks', this.markersWire(session.pid));
     maybe('trade', this.tradeWire(session.pid));
     maybe('duel', this.duelWire(session.pid));
     maybe('arena', this.sim.arenaInfoFor(session.pid));
@@ -943,6 +998,14 @@ export class GameServer {
         } : null;
       }).filter(Boolean),
     };
+  }
+
+  // Raid markers the player's party can see, as { entityId: markerId }; null
+  // when the player is in no party. Pure read — the sim owns marker cleanup.
+  private markersWire(pid: number): unknown {
+    const party = this.sim.partyOf(pid);
+    if (!party) return null;
+    return this.sim.markersFor(pid);
   }
 
   private tradeWire(pid: number): unknown {
@@ -1014,6 +1077,54 @@ export class GameServer {
     return this.sim.entities.get(id)?.pos ?? null;
   }
 
+  private routeRememberedChat(session: ClientSession, rawText: string, pid: number): import('../src/sim/sim').SentChat | null {
+    const text = rawText.trim();
+    if (!text) return null;
+    if (!text.startsWith('/')) {
+      const body = censorChatText(text);
+      if (!body.trim()) return null;
+      switch (session.rememberedChat.channel) {
+        case 'guild':
+        case 'officer': {
+          const channel = session.rememberedChat.channel;
+          const route = channel === 'guild'
+            ? this.social.guildChat(this.actorFor(session), body)
+            : this.social.officerChat(this.actorFor(session), body);
+          void route.then((sent) => {
+            if (sent) {
+              this.chatLog.log({
+                accountId: session.accountId, characterId: session.characterId,
+                characterName: session.name, channel, message: body.trim().slice(0, 200),
+              });
+            }
+          }).catch((err) => console.error(`${channel} chat failed:`, err));
+          return null;
+        }
+        case 'whisper':
+          return this.sim.chat(`/w ${session.rememberedChat.target} ${body}`, pid);
+        case 'party':
+          return this.sim.chat(`/p ${body}`, pid);
+        case 'general':
+          return this.sim.chat(`/general ${body}`, pid);
+        case 'yell':
+          return this.sim.chat(`/y ${body}`, pid);
+        case 'say':
+          return this.sim.chat(body, pid);
+      }
+    }
+
+    const sent = this.sim.chat(censorChatText(text), pid);
+    if (sent) {
+      if (sent.channel === 'whisper') {
+        const wm = /^\/(?:w|whisper|t|tell)\s+(\S+)\s+[\s\S]+$/i.exec(text);
+        if (wm) session.rememberedChat = { channel: 'whisper', target: wm[1] };
+      } else {
+        session.rememberedChat = { channel: sent.channel };
+      }
+    }
+    return sent;
+  }
+
   private logChat(session: ClientSession, sent: import('../src/sim/sim').SentChat | null): void {
     if (!sent) return;
     this.chatLog.log({
@@ -1061,6 +1172,60 @@ export class GameServer {
       this.send(session, { t: 'events', list: [{ type: 'error', text: 'You are sending messages too quickly. Slow down.' }] });
     }
     return false;
+  }
+
+  private sendWhoRoster(session: ClientSession): void {
+    if (!session.blockListLoaded) {
+      this.send(session, { t: 'events', list: [{ type: 'error', text: 'Your ignore list is still loading. Try /who again in a moment.' }] });
+      return;
+    }
+    const rows = this.whoRosterFor(session);
+    const total = rows.length;
+    const list: { type: 'log'; text: string; color: string }[] = [{
+      type: 'log',
+      text: `Who: ${total} ${total === 1 ? 'player' : 'players'} online on ${REALM}.`,
+      color: '#7fd4ff',
+    }];
+    for (const row of rows.slice(0, WHO_RESULT_LIMIT)) {
+      const status = row.status === 'online' ? '' : ` (${row.status})`;
+      list.push({
+        type: 'log',
+        text: `${row.name} - level ${row.level} ${row.cls} - ${row.zone}${status}`,
+        color: '#c9b27a',
+      });
+    }
+    if (total > WHO_RESULT_LIMIT) {
+      list.push({
+        type: 'log',
+        text: `...and ${total - WHO_RESULT_LIMIT} more.`,
+        color: '#998d6a',
+      });
+    }
+    this.send(session, { t: 'events', list });
+  }
+
+  private whoRosterFor(viewer: ClientSession): WhoRosterRow[] {
+    const rows: WhoRosterRow[] = [];
+    for (const session of this.clients.values()) {
+      if (!this.canShowInWho(viewer, session)) continue;
+      const e = this.sim.entities.get(session.pid);
+      const meta = this.sim.meta(session.pid);
+      if (!e || !meta) continue;
+      rows.push({
+        name: session.name,
+        cls: meta.cls,
+        level: e.level,
+        ...this.presenceOf(session),
+      });
+    }
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private canShowInWho(viewer: ClientSession, candidate: ClientSession): boolean {
+    if (!candidate.blockListLoaded) return false;
+    if (viewer.blockedIds.has(candidate.characterId)) return false;
+    if (candidate.characterId !== viewer.characterId && candidate.blockedIds.has(viewer.characterId)) return false;
+    return true;
   }
 
   private broadcastSystem(text: string): void {

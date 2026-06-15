@@ -18,7 +18,9 @@ export interface ClassDef {
   resourceType: 'rage' | 'mana' | 'energy';
   startWeapon: string;
   startChest: string;
-  ranged?: WeaponInfo & { maxRange: number; minRange: number }; // hunters: auto shot
+  // hunters: auto shot (8yd deadzone). casters: wand (wand:true → no deadzone,
+  // fires a magic-school bolt so they don't run into melee to auto-attack, #94)
+  ranged?: WeaponInfo & { maxRange: number; minRange: number; wand?: boolean; school?: 'physical' | 'fire' | 'frost' | 'arcane' | 'shadow' | 'holy' | 'nature' };
   abilities: string[]; // full kit, in learn order
   color: number;
   crest: string; // portrait glyph
@@ -53,6 +55,7 @@ export const CLASSES: Record<PlayerClass, ClassDef> = {
     resourceType: 'mana',
     startWeapon: 'gnarled_staff',
     startChest: 'apprentice_robe',
+    ranged: { min: 3, max: 6, speed: 1.8, maxRange: 30, minRange: 0, wand: true, school: 'arcane' },
     abilities: ['fireball', 'frost_armor', 'arcane_intellect', 'frostbolt', 'conjure_water', 'fire_blast', 'arcane_missiles', 'polymorph', 'frost_nova', 'arcane_explosion', 'scorch', 'ice_barrier'],
     color: 0x69ccf0,
     crest: '✦',
@@ -118,6 +121,7 @@ export const CLASSES: Record<PlayerClass, ClassDef> = {
     resourceType: 'mana',
     startWeapon: 'gnarled_staff',
     startChest: 'apprentice_robe',
+    ranged: { min: 3, max: 6, speed: 1.8, maxRange: 30, minRange: 0, wand: true, school: 'holy' },
     abilities: ['smite', 'lesser_heal', 'power_word_fortitude', 'shadow_word_pain', 'power_word_shield', 'renew', 'mind_blast', 'heal', 'mind_flay', 'flash_heal'],
     color: 0xfffff0,
     crest: '✝',
@@ -150,6 +154,7 @@ export const CLASSES: Record<PlayerClass, ClassDef> = {
     resourceType: 'mana',
     startWeapon: 'gnarled_staff',
     startChest: 'apprentice_robe',
+    ranged: { min: 3, max: 6, speed: 1.8, maxRange: 30, minRange: 0, wand: true, school: 'shadow' },
     abilities: ['shadow_bolt', 'demon_skin', 'immolate', 'corruption', 'life_tap', 'curse_of_agony', 'drain_life', 'fear', 'searing_pain', 'shadowburn'],
     color: 0x9482c9,
     crest: '🕯',

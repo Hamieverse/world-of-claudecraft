@@ -346,11 +346,12 @@ export async function topArenaRatings(limit = 20): Promise<ArenaLeaderRow[]> {
             COALESCE((state->>'arenaWins')::int, 0)     AS wins,
             COALESCE((state->>'arenaLosses')::int, 0)   AS losses
        FROM characters
-      WHERE state IS NOT NULL
+      WHERE realm = $1
+        AND state IS NOT NULL
         AND COALESCE((state->>'arenaWins')::int, 0) + COALESCE((state->>'arenaLosses')::int, 0) > 0
       ORDER BY rating DESC, wins DESC, name ASC
-      LIMIT $1`,
-    [Math.max(1, Math.min(100, limit))],
+      LIMIT $2`,
+    [REALM, Math.max(1, Math.min(100, limit))],
   );
   return res.rows.map((r) => ({
     name: r.name, class: r.class, level: r.level,

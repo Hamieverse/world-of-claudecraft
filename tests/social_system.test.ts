@@ -261,6 +261,28 @@ describe('guilds', () => {
     expect(snap.guild?.members.map((m) => m.name)).toEqual(['Aleph']);
   });
 
+  it('refreshes guildmates\' panels when a member comes online, even non-friends (#100)', async () => {
+    await h.svc.guildCreate(h.actor(1), 'Iron Vanguard');
+    await h.svc.guildInvite(h.actor(1), 'Bet');
+    await h.svc.guildAccept(h.actor(2));
+    // Aleph and Bet are guildmates but NOT friends; Gimel is unrelated
+    h.tx.clear();
+    await h.svc.announcePresence(h.actor(2), true);
+    expect(h.tx.snapshotCount.get(1) ?? 0).toBeGreaterThan(0); // guildmate refreshed
+    expect(h.tx.snapshotCount.get(3) ?? 0).toBe(0); // unrelated player untouched
+    expect(h.tx.snapshotCount.get(2) ?? 0).toBe(0); // the actor doesn't refresh itself here
+  });
+
+  it('does not double-notify someone who is both a friend and a guildmate (#100)', async () => {
+    await h.svc.friendAdd(h.actor(1), 'Bet'); // Aleph friends Bet
+    await h.svc.guildCreate(h.actor(1), 'Iron Vanguard');
+    await h.svc.guildInvite(h.actor(1), 'Bet');
+    await h.svc.guildAccept(h.actor(2));
+    h.tx.clear();
+    await h.svc.announcePresence(h.actor(2), true);
+    expect(h.tx.snapshotCount.get(1) ?? 0).toBe(1); // exactly one refresh, not two
+  });
+
   it('rejects an invalid or duplicate guild name', async () => {
     await h.svc.guildCreate(h.actor(1), 'no');
     expect(h.tx.errorsFor(1).join()).toMatch(/3-24 letters/);

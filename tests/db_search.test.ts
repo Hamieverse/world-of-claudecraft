@@ -24,6 +24,19 @@ describe('character typeahead search', () => {
     expect(SOCIAL_SCHEMA).toContain('ON characters (realm, lower(name) text_pattern_ops)');
   });
 
+  it('enforces case-insensitive character-name uniqueness per realm', () => {
+    expect(SOCIAL_SCHEMA).toContain('CREATE UNIQUE INDEX IF NOT EXISTS characters_realm_lower_name_unique');
+    expect(SOCIAL_SCHEMA).toContain('ON characters (realm, lower(name))');
+  });
+
+  it('renames existing case-colliding characters before adding the folded unique index', () => {
+    expect(SOCIAL_SCHEMA).toContain('dedupe case-insensitive character names before adding the unique index');
+    expect(SOCIAL_SCHEMA).toContain('row_number() OVER (PARTITION BY realm, lower(name) ORDER BY created_at, id)');
+    expect(SOCIAL_SCHEMA).toContain('force_rename = TRUE');
+    expect(SOCIAL_SCHEMA.indexOf('dedupe case-insensitive character names before adding the unique index'))
+      .toBeLessThan(SOCIAL_SCHEMA.indexOf('CREATE UNIQUE INDEX IF NOT EXISTS characters_realm_lower_name_unique'));
+  });
+
   it('uses the lower-name prefix predicate and preserves wildcard escaping', async () => {
     dbMock.query.mockResolvedValueOnce({ rows: [{ name: 'Al%_', cls: 'mage', level: 12 }] });
 

@@ -13,9 +13,11 @@ vi.mock('../server/db', () => ({
 }));
 
 import { censorChatText, GameServer, ClientSession } from '../server/game';
+import { saveCharacterState } from '../server/db';
 import { ClientWorld } from '../src/net/online';
+import type { PlayerClass } from '../src/sim/types';
 
-const DELTA_KEYS = ['inv', 'equip', 'qlog', 'qdone', 'cds', 'stats', 'weapon', 'party', 'trade', 'duel'];
+const DELTA_KEYS = ['inv', 'buyback', 'equip', 'qlog', 'qdone', 'cds', 'stats', 'weapon', 'party', 'trade', 'duel'];
 
 interface FakeClient {
   sent: any[];
@@ -34,10 +36,18 @@ function lastSnap(sent: any[]): any {
   return null;
 }
 
-function joinServer(server: GameServer, fc: FakeClient, characterId: number, name: string): ClientSession {
-  const session = server.join(fc.ws, characterId, characterId, name, 'warrior', null);
+function joinServer(server: GameServer, fc: FakeClient, characterId: number, name: string, cls: PlayerClass = 'warrior'): ClientSession {
+  const session = server.join(fc.ws, characterId, characterId, name, cls, null);
   if ('error' in session) throw new Error(session.error);
+  session.blockListLoaded = true;
   return session;
+}
+
+function eventTexts(sent: any[]): string[] {
+  return sent
+    .flatMap((msg) => msg.t === 'events' ? msg.list : [])
+    .filter((ev) => ev.type === 'log' || ev.type === 'error')
+    .map((ev) => ev.text);
 }
 
 function broadcast(server: GameServer): void {
@@ -52,6 +62,7 @@ function bareClient(pid: number): ClientWorld {
   c.playerId = pid;
   c.moveInput = {};
   c.inventory = [];
+  c.vendorBuyback = [];
   c.equipment = {};
   c.copper = 0;
   c.xp = 0;
@@ -131,6 +142,24 @@ describe('delta snapshots', () => {
     }
   });
 
+  it('sell command forwards bounded stack quantities', () => {
+    const player = server.sim.entities.get(session.pid)!;
+    const vendor = [...server.sim.entities.values()].find((e) => e.templateId === 'trader_wilkes')!;
+    player.pos = { ...vendor.pos, x: vendor.pos.x + 2 };
+    player.prevPos = { ...player.pos };
+    server.sim.addItem('wolf_fang', 5, session.pid);
+
+    server.handleMessage(session, JSON.stringify({ t: 'cmd', cmd: 'sell', item: 'wolf_fang', count: 3 }));
+
+    expect(server.sim.meta(session.pid)?.copper).toBe(12);
+    expect(server.sim.countItem('wolf_fang', session.pid)).toBe(2);
+
+    server.handleMessage(session, JSON.stringify({ t: 'cmd', cmd: 'sell', item: 'wolf_fang', count: 99 }));
+
+    expect(server.sim.meta(session.pid)?.copper).toBe(20);
+    expect(server.sim.countItem('wolf_fang', session.pid)).toBe(0);
+  });
+
   it('resends a heavy field once it changes', () => {
     broadcast(server);
     fc.sent.length = 0;
@@ -141,6 +170,33 @@ describe('delta snapshots', () => {
     expect(snap.self.inv.some((s: any) => s.itemId === 'baked_bread')).toBe(true);
     expect(snap.self).not.toHaveProperty('qlog');
     expect(snap.self).not.toHaveProperty('stats');
+  });
+
+  it('mirrors vendor buyback deltas to the client', () => {
+    const wilkes = [...server.sim.entities.values()].find((e) => e.templateId === 'trader_wilkes')!;
+    const player = server.sim.entities.get(session.pid)!;
+    player.pos.x = wilkes.pos.x + 2;
+    player.pos.z = wilkes.pos.z;
+    player.prevPos = { ...player.pos };
+    server.sim.addItem('apprentice_staff', 1, session.pid);
+    broadcast(server);
+    const client = bareClient(session.pid);
+    (client as any).applySnapshot(lastSnap(fc.sent));
+    expect(client.vendorBuyback).toEqual([]);
+    expect(client.consumeInventoryChanged()).toBe(true);
+
+    fc.sent.length = 0;
+    server.handleMessage(session, JSON.stringify({ t: 'cmd', cmd: 'sell', item: 'apprentice_staff' }));
+    broadcast(server);
+    const snap = lastSnap(fc.sent);
+    expect(snap.self).toHaveProperty('buyback');
+    expect(snap.self.buyback).toEqual([{ itemId: 'apprentice_staff', count: 1 }]);
+
+    const buybackOnly = { ...snap, self: { ...snap.self } };
+    delete buybackOnly.self.inv;
+    (client as any).applySnapshot(buybackOnly);
+    expect(client.vendorBuyback).toEqual([{ itemId: 'apprentice_staff', count: 1 }]);
+    expect(client.consumeInventoryChanged()).toBe(true);
   });
 
   it('quest commands force a quest-state resync even when rejected', () => {
@@ -155,6 +211,20 @@ describe('delta snapshots', () => {
     expect(snap.self).toHaveProperty('qlog');
     expect(snap.self).toHaveProperty('qdone');
     expect(snap.self).not.toHaveProperty('inv');
+  });
+
+  it('rejected distant quest accepts resync the authoritative quest state', () => {
+    broadcast(server);
+    fc.sent.length = 0;
+    const player = server.sim.entities.get(session.pid)!;
+    player.pos.x = 0;
+    player.pos.z = -40;
+
+    server.handleMessage(session, JSON.stringify({ t: 'cmd', cmd: 'accept', quest: 'q_wolves' }));
+    broadcast(server);
+    const snap = lastSnap(fc.sent);
+    expect(snap.self.qlog).toEqual([]);
+    expect(snap.self.qdone).toEqual([]);
   });
 
   it('each client gets full state on its own first snapshot', () => {
@@ -273,6 +343,137 @@ describe('chat moderation', () => {
       warn.mockRestore();
       rmSync(dir, { force: true, recursive: true });
     }
+  });
+});
+
+describe('autosaves', () => {
+  beforeEach(() => {
+    vi.mocked(saveCharacterState).mockReset();
+    vi.mocked(saveCharacterState).mockResolvedValue(undefined);
+  });
+
+  it('skips overlapping saveAll runs while saving each current session once', async () => {
+    const server = new GameServer();
+    joinServer(server, fakeWs(), 1, 'Testa');
+    joinServer(server, fakeWs(), 2, 'Testb');
+    joinServer(server, fakeWs(), 3, 'Testc');
+
+    let resolveFirstSave!: () => void;
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    vi.mocked(saveCharacterState).mockImplementationOnce(() => firstSave);
+
+    const firstRun = server.saveAll('test');
+    await vi.waitFor(() => {
+      expect(saveCharacterState).toHaveBeenCalledTimes(3);
+    });
+
+    await server.saveAll('test');
+    expect(saveCharacterState).toHaveBeenCalledTimes(3);
+
+    resolveFirstSave();
+    await firstRun;
+
+    const savedCharacterIds = vi.mocked(saveCharacterState).mock.calls.map((call) => call[0]);
+    expect(savedCharacterIds.sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+
+  it('waits for an active autosave before running the shutdown save pass', async () => {
+    const server = new GameServer();
+    joinServer(server, fakeWs(), 1, 'Testa');
+    joinServer(server, fakeWs(), 2, 'Testb');
+
+    let resolveFirstSave!: () => void;
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    vi.mocked(saveCharacterState).mockImplementationOnce(() => firstSave);
+
+    const autosave = server.saveAll('autosave');
+    await vi.waitFor(() => {
+      expect(saveCharacterState).toHaveBeenCalledTimes(2);
+    });
+
+    const shutdown = server.saveAll('shutdown');
+    await Promise.resolve();
+    expect(saveCharacterState).toHaveBeenCalledTimes(2);
+
+    resolveFirstSave();
+    await autosave;
+    await shutdown;
+
+    const savedCharacterIds = vi.mocked(saveCharacterState).mock.calls.map((call) => call[0]);
+    expect(savedCharacterIds.sort((a, b) => a - b)).toEqual([1, 1, 2, 2]);
+  });
+});
+
+describe('/who command', () => {
+  it('lists online players with class, level, realm, and zone metadata', () => {
+    const server = new GameServer();
+    const fc = fakeWs();
+    const self = joinServer(server, fc, 1, 'Aleph', 'warrior');
+    const fc2 = fakeWs();
+    const other = joinServer(server, fc2, 2, 'Bet', 'mage');
+    server.sim.setPlayerLevel(7, other.pid);
+    fc.sent.length = 0;
+
+    server.handleMessage(self, JSON.stringify({ t: 'cmd', cmd: 'chat', text: '/who' }));
+
+    const text = eventTexts(fc.sent).join('\n');
+    expect(text).toContain('Who: 2 players online on Claudemoon.');
+    expect(text).toContain('Aleph - level 1 warrior - Eastbrook Vale');
+    expect(text).toContain('Bet - level 7 mage - Eastbrook Vale');
+  });
+
+  it('hides ignored players and players who ignored the requester', () => {
+    const server = new GameServer();
+    const fc = fakeWs();
+    const self = joinServer(server, fc, 1, 'Aleph');
+    const fcIgnored = fakeWs();
+    const ignored = joinServer(server, fcIgnored, 2, 'Bet');
+    const fcBlocking = fakeWs();
+    const blocking = joinServer(server, fcBlocking, 3, 'Gimel');
+    self.blockedIds = new Set([ignored.characterId]);
+    blocking.blockedIds = new Set([self.characterId]);
+    fc.sent.length = 0;
+
+    server.handleMessage(self, JSON.stringify({ t: 'cmd', cmd: 'chat', text: '/who' }));
+
+    const text = eventTexts(fc.sent).join('\n');
+    expect(text).toContain('Who: 1 player online on Claudemoon.');
+    expect(text).toContain('Aleph - level 1 warrior - Eastbrook Vale');
+    expect(text).not.toContain('Bet');
+    expect(text).not.toContain('Gimel');
+  });
+
+  it('waits for the requester ignore list before showing online players', () => {
+    const server = new GameServer();
+    const fc = fakeWs();
+    const self = joinServer(server, fc, 1, 'Aleph');
+    joinServer(server, fakeWs(), 2, 'Bet');
+    self.blockListLoaded = false;
+    fc.sent.length = 0;
+
+    server.handleMessage(self, JSON.stringify({ t: 'cmd', cmd: 'chat', text: '/who' }));
+
+    expect(eventTexts(fc.sent)).toContain('Your ignore list is still loading. Try /who again in a moment.');
+  });
+
+  it('omits players whose own ignore list is still loading', () => {
+    const server = new GameServer();
+    const fc = fakeWs();
+    const self = joinServer(server, fc, 1, 'Aleph');
+    const pending = joinServer(server, fakeWs(), 2, 'Bet');
+    pending.blockListLoaded = false;
+    fc.sent.length = 0;
+
+    server.handleMessage(self, JSON.stringify({ t: 'cmd', cmd: 'chat', text: '/who' }));
+
+    const text = eventTexts(fc.sent).join('\n');
+    expect(text).toContain('Who: 1 player online on Claudemoon.');
+    expect(text).toContain('Aleph - level 1 warrior - Eastbrook Vale');
+    expect(text).not.toContain('Bet');
   });
 });
 

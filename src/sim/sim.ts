@@ -1,7 +1,7 @@
 import {
   ABILITIES, ARENA_SLOT_COUNT, CAMPS, CLASSES, DUNGEONS, DUNGEON_LIST, DungeonDef, arenaOrigin, dungeonAt,
   DUNGEON_X_THRESHOLD, GROUND_OBJECTS, GROUP_XP_BONUS, INSTANCE_SLOT_COUNT, isArenaPos,
-  ITEMS, MOBS, NPCS, PLAYER_START, QUESTS, REWARD_ARCHETYPE, abilitiesKnownAt, instanceOrigin,
+  ITEMS, MOBS, NPCS, PLAYER_START, QUESTS, questRewardItemId, abilitiesKnownAt, instanceOrigin,
   zoneAt,
 } from './data';
 import { ARENA_SPAWN_A, ARENA_SPAWN_B } from './dungeon_layout';
@@ -17,8 +17,8 @@ import {
 import { groundHeight, WATER_LEVEL } from './world';
 import {
   AbilityDef, AbilityEffect, Aura, AuraKind, CAST_PUSHBACK_SEC, CHANNEL_PUSHBACK_FRACTION, CONSUME_DURATION,
-  CONSUME_TICKS, DT, Entity, EquipSlot, GCD,
-  INTERACT_RANGE, InvSlot, MELEE_RANGE, MAX_LEVEL,
+  CONSUME_TICKS, CrowdControlDrCategory, DT, Entity, EquipSlot, FISHING_CAST_ID, FISHING_CAST_TIME, GCD,
+  INTERACT_RANGE, InvSlot, LootEntry, LootSlot, MELEE_RANGE, MAX_LEVEL, MobFamily,
   MoveInput, PlayerClass, QuestProgress, QuestState, RUN_SPEED, SimConfig, SimEvent, TURN_SPEED, Vec3,
   angleTo, armorReduction, dist2d, emptyMoveInput, isConsuming, meleeMissChance, mobXpValue, normAngle,
   rageFromDealing, rageFromTaking, spellHitChance, xpForLevel,
@@ -28,6 +28,11 @@ const LEASH_DISTANCE = 45;
 const DUNGEON_LEASH_DISTANCE = 70;
 const CORPSE_DURATION = 60;
 const EVADE_SPEED_MULT = 1.6;
+// An evading mob walks a straight line home (no pathfinding) and stalls if deep
+// water or a collider sits between it and its spawn. Since evading mobs are
+// immune while resetting, a permanent stall = a permanently unkillable mob. If it
+// can't get closer to home for this long, it starts phasing through the blocker.
+const EVADE_STALL_TIMEOUT = 3;
 const BACKPEDAL_MULT = 0.65;
 const GRAVITY = 16;
 const JUMP_VELOCITY = 6;
@@ -39,11 +44,14 @@ const PARTY_XP_RANGE = 80; // yards: members this close share kill xp/credit
 const DUEL_COUNTDOWN = 3;
 // Ashen Coliseum 1v1 arena
 const ARENA_COUNTDOWN = 5; // gates pre-fight: heal up, no swings land yet
+const ARENA_RETURN_DELAY = 5; // aftermath: hold on the sands before going home
 const ARENA_MAX_DURATION = 150; // seconds; a stalling match resolves on hp%
 const ARENA_BASE_RATING = 1500; // every character starts here, unranked
 const ARENA_MIN_RATING = 100; // a rating floor so a losing streak can't go absurd
 const ARENA_K_FACTOR = 32; // Elo sensitivity per match
 const ARENA_LADDER_SIZE = 10; // live online standings shipped to clients
+const PVP_CC_DR_RESET = 18; // seconds before a repeated PvP CC category is fresh again
+const PVP_CC_DR_MULTIPLIERS = [1, 0.5, 0.25] as const;
 const SAY_RANGE = 25; // /say carries a short distance; /yell across a camp
 const YELL_RANGE = 100;
 const CHAT_BURST = 8; // messages a player may send back-to-back...
@@ -58,12 +66,23 @@ const MARKET_MAX_PRICE = 5_000_000; // 500g ceiling — guards against overflow 
 const MARKET_CUT = 0.05; // the Merchant's cut on a completed sale (a gold sink)
 const MARKET_LISTING_DURATION = 48 * 3600; // sim-seconds an unsold listing lingers before returning
 const MARKET_WIRE_LIMIT = 120; // most listings shipped to one client at a time
+const VENDOR_BUYBACK_LIMIT = 12;
 const INSTANCE_EMPTY_TIMEOUT = 300; // seconds before an empty instance resets
-const HUNTER_RANGED_DEADZONE = 8;
 const MAX_CLIMB_SLOPE = 1.5; // rise/run above which a ground move is blocked (cliffs, world rim)
+
+// How far a mob pulls same-family neighbours into a fight ("social aggro").
+// Murlocs (the clustered water mobs players call "frogs") used to pull too much,
+// chain-aggroing the whole pond and making solo pulls impossible (#102). Tune
+// per family here; everything else falls back to the default.
+const POTION_COOLDOWN = 60; // seconds; shared cooldown across combat potions (#103)
+const DEFAULT_SOCIAL_PULL_RADIUS = 5;
+const SOCIAL_PULL_RADIUS: Partial<Record<MobFamily, number>> = {
+  murloc: 8,
+};
 const SWIM_SURFACE_Y = WATER_LEVEL - 0.75; // body bobs just below the water line
 const SWIM_DEPTH = 0.8; // ground this far under the water line = deep water
 const SWIM_SPEED_MULT = 0.65;
+const FISHING_SAMPLE_DISTANCES = [4, 8, 12, 16, 20, 24];
 const DOOR_TRIGGER_RADIUS = 2.0; // walking this close to a dungeon door teleports you
 const BODY_RADIUS = 0.5;
 const CHARGE_SPEED_MULT = 3; // warrior charge runs at 3x normal speed
@@ -113,8 +132,8 @@ export interface ArenaMatch {
   a: number; // pid
   b: number; // pid
   slot: number; // arena instance slot
-  state: 'countdown' | 'active';
-  timer: number; // countdown remaining, then elapsed once active
+  state: 'countdown' | 'active' | 'over';
+  timer: number; // countdown remaining, then elapsed once active, then return countdown
   returnA: { x: number; z: number; facing: number };
   returnB: { x: number; z: number; facing: number };
   ratingA: number;
@@ -172,6 +191,7 @@ export interface PlayerMeta {
   name: string;
   moveInput: MoveInput;
   inventory: InvSlot[];
+  vendorBuyback: InvSlot[];
   copper: number;
   equipment: PlayerEquipment;
   xp: number;
@@ -234,6 +254,7 @@ export interface CharacterState {
   facing: number;
   equipment: PlayerEquipment;
   inventory: InvSlot[];
+  vendorBuyback?: InvSlot[];
   questLog: { questId: string; counts: number[]; state: 'active' | 'ready' | 'done' }[];
   questsDone: string[];
   arenaRating?: number;
@@ -303,6 +324,9 @@ export class Sim {
   partyByPid = new Map<number, number>(); // pid -> party id
   partyInvites = new Map<number, { fromPid: number; expires: number }>(); // invitee pid -> invite
   nextPartyId = 1;
+  // raid/target markers: partyId -> (enemy entityId -> markerId 0..7). A
+  // cosmetic, party-scoped overlay — never read by tick()/obs/persistence.
+  partyMarkers = new Map<number, Map<number, number>>();
   trades = new Map<number, TradeSession>(); // pid -> shared session (both pids point at it)
   tradeInvites = new Map<number, { fromPid: number; expires: number }>();
   duels = new Map<number, DuelState>(); // pid -> shared duel (both pids)
@@ -346,8 +370,8 @@ export class Sim {
     // Mobs from camps
     for (const camp of CAMPS) {
       const template = MOBS[camp.mobId];
-      // murlocs may wade in the shallows; everyone else spawns on dry land
-      const minHeight = template.family === 'murloc' ? WATER_LEVEL - 0.5 : WATER_LEVEL + 0.4;
+      // Swimmers may wade in the shallows; everyone else spawns on dry land.
+      const minHeight = this.mobCanSwim(template) ? WATER_LEVEL - 0.5 : WATER_LEVEL + 0.4;
       for (let i = 0; i < camp.count; i++) {
         const ang = this.rng.range(0, Math.PI * 2);
         const r = Math.sqrt(this.rng.next()) * camp.radius;
@@ -400,6 +424,7 @@ export class Sim {
   }
 
   private dropEntity(id: number): void {
+    this.clearEntityMarker(id); // a despawned entity keeps no raid marker
     const e = this.entities.get(id);
     if (!e) return;
     this.grid.remove(e);
@@ -436,6 +461,7 @@ export class Sim {
       name,
       moveInput: emptyMoveInput(),
       inventory: [],
+      vendorBuyback: [],
       copper: 0,
       equipment: { mainhand: classDef.startWeapon, chest: classDef.startChest },
       xp: 0,
@@ -460,6 +486,7 @@ export class Sim {
       meta.copper = s.copper;
       meta.equipment = { ...s.equipment };
       meta.inventory = s.inventory.map((i) => ({ ...i }));
+      meta.vendorBuyback = (s.vendorBuyback ?? []).map((i) => ({ ...i }));
       for (const q of s.questLog) {
         if (q.state !== 'done') meta.questLog.set(q.questId, { questId: q.questId, counts: [...q.counts], state: q.state });
       }
@@ -538,6 +565,7 @@ export class Sim {
       facing: e.facing,
       equipment: { ...meta.equipment },
       inventory: meta.inventory.map((i) => ({ ...i })),
+      vendorBuyback: meta.vendorBuyback.map((i) => ({ ...i })),
       questLog: [...meta.questLog.values()].map((q) => ({ questId: q.questId, counts: [...q.counts], state: q.state })),
       questsDone: [...meta.questsDone],
       arenaRating: meta.arenaRating,
@@ -565,6 +593,9 @@ export class Sim {
   }
   get inventory(): InvSlot[] {
     return this.primary.inventory;
+  }
+  get vendorBuyback(): InvSlot[] {
+    return this.primary.vendorBuyback;
   }
   get equipment(): PlayerEquipment {
     return this.primary.equipment;
@@ -776,6 +807,16 @@ export class Sim {
   private isRooted(e: Entity): boolean {
     return this.isStunned(e) || e.auras.some((a) => a.kind === 'root');
   }
+  private mobCanSwim(template: { family?: string; canSwim?: boolean } | undefined): boolean {
+    return !!template && (template.canSwim === true || template.family === 'murloc');
+  }
+  private isControlAura(kind: AuraKind): boolean {
+    return kind === 'stun' || kind === 'root' || kind === 'incapacitate' || kind === 'polymorph';
+  }
+  private itemRequiresGroupRoll(itemId: string): boolean {
+    const q = ITEMS[itemId]?.quality ?? 'common';
+    return q === 'uncommon' || q === 'rare' || q === 'epic';
+  }
   private moveSpeedMult(e: Entity): number {
     let slow = 1, speed = 1;
     for (const a of e.auras) {
@@ -789,10 +830,42 @@ export class Sim {
   private effectiveArmor(e: Entity): number {
     let armor = e.stats.armor;
     for (const a of e.auras) {
+      if (e.kind !== 'player' && a.kind === 'buff_armor') armor += a.value;
       if (a.kind === 'sunder') armor -= a.value * (a.stacks ?? 1);
     }
     return Math.max(0, armor);
   }
+
+  private effectiveAttackPower(e: Entity): number {
+    let attackPower = e.attackPower;
+    if (e.kind !== 'player') {
+      for (const a of e.auras) {
+        if (a.kind === 'buff_ap') attackPower += a.value;
+      }
+    }
+    return attackPower;
+  }
+
+  private nonPlayerAuraHp(aura: Aura): number {
+    if (aura.kind === 'buff_sta') return aura.value * 10;
+    if (aura.kind === 'buff_allstats') return aura.value * 10;
+    return 0;
+  }
+
+  private applyNonPlayerStatAura(target: Entity, aura: Aura, direction: 1 | -1): void {
+    if (target.kind === 'player') return;
+    const hpDelta = this.nonPlayerAuraHp(aura) * direction;
+    if (hpDelta === 0) return;
+    const hpFrac = target.maxHp > 0 ? target.hp / target.maxHp : 1;
+    target.maxHp = Math.max(1, target.maxHp + hpDelta);
+    target.hp = target.dead ? 0 : Math.max(1, Math.min(target.maxHp, Math.round(target.maxHp * hpFrac)));
+  }
+
+  private clearNonPlayerStatAuras(target: Entity): void {
+    if (target.kind === 'player') return;
+    for (const aura of target.auras) this.applyNonPlayerStatAura(target, aura, -1);
+  }
+
   // swing interval multiplier: >1 = slower (thunder clap), haste divides
   private swingIntervalMult(e: Entity): number {
     let m = 1;
@@ -982,7 +1055,10 @@ export class Sim {
     if (this.tickCount % 40 !== 0) return; // every 2 seconds (the classic tick)
     if (p.resourceType === 'mana') {
       if (p.fiveSecondRule >= 5) {
-        const regen = p.stats.spi / 4 + 2;
+        // out-of-combat mana regen: faster than before and scales with spirit
+        // (gear/level) plus a small flat per-level floor so low-spirit casters
+        // still recover at a reasonable pace (#103)
+        const regen = p.stats.spi / 3 + 4 + Math.floor(p.level / 5);
         p.resource = Math.min(p.maxResource, p.resource + Math.round(regen));
       }
     } else if (p.resourceType === 'energy') {
@@ -1061,6 +1137,7 @@ export class Sim {
       }
       if (a.remaining <= 0) {
         e.auras.splice(i, 1);
+        this.applyNonPlayerStatAura(e, a, -1);
         this.emit({ type: 'aura', targetId: e.id, name: a.name, gained: false });
         if (a.kind.startsWith('buff') || a.kind.startsWith('form')) statsDirty = true;
       }
@@ -1096,10 +1173,15 @@ export class Sim {
     }
 
     if (p.castRemaining <= 0) {
-      const res = this.resolvedAbility(p.castingAbility, p.id);
+      const castId = p.castingAbility;
       p.castingAbility = null;
       p.castRemaining = 0;
       this.emit({ type: 'castStop', entityId: p.id, success: true });
+      if (castId === FISHING_CAST_ID) {
+        this.completeFishing(p, meta);
+        return;
+      }
+      const res = this.resolvedAbility(castId, p.id);
       if (res) this.applyAbility(p, meta, res);
     }
   }
@@ -1439,7 +1521,7 @@ export class Sim {
         }
         case 'finisherDamage': {
           if (!target || spentCombo <= 0) break;
-          let dmg = eff.base + eff.perCombo * spentCombo + this.rng.range(0, eff.variance) + (p.attackPower / 14);
+          let dmg = eff.base + eff.perCombo * spentCombo + this.rng.range(0, eff.variance) + (this.effectiveAttackPower(p) / 14);
           const crit = this.rng.chance(p.critChance);
           if (crit) dmg *= 2;
           dmg *= 1 - armorReduction(this.effectiveArmor(target), p.level);
@@ -1558,11 +1640,7 @@ export class Sim {
         }
         case 'root': {
           if (!target || target.dead) break;
-          this.applyAura(target, {
-            id: ability.id + '_root', name: ability.name, kind: 'root',
-            remaining: eff.duration, duration: eff.duration, value: 0,
-            sourceId: p.id, school: ability.school,
-          });
+          this.applyRootAura(p, target, ability.name, ability.id + '_root', eff.duration, ability.school);
           this.enterCombat(p, target);
           break;
         }
@@ -1621,15 +1699,11 @@ export class Sim {
         }
         case 'aoeRoot': {
           this.emit({ type: 'spellfx', sourceId: p.id, targetId: p.id, school: ability.school, fx: 'nova' });
-          for (const m of this.mobsInRadius(p.pos, eff.radius)) {
+          for (const m of this.hostilesInRadius(p, p.pos, eff.radius)) {
             const dmg = this.rng.range(eff.min, eff.max);
             this.dealDamage(p, m, Math.round(dmg), false, ability.school, ability.name, 'hit');
-            if (!m.dead) {
-              this.applyAura(m, {
-                id: ability.id + '_root', name: ability.name, kind: 'root',
-                remaining: eff.duration, duration: eff.duration, value: 0,
-                sourceId: p.id, school: ability.school,
-              });
+            if (!m.dead && this.isHostileTo(p, m)) {
+              this.applyRootAura(p, m, ability.name, ability.id + '_root', eff.duration, ability.school);
             }
           }
           break;
@@ -1749,20 +1823,61 @@ export class Sim {
 
   private applyAura(target: Entity, aura: Aura): void {
     if (target.kind === 'npc' && isRejectedFriendlyNpcAura(aura)) return;
+    if (target.kind === 'mob' && MOBS[target.templateId]?.ccImmune && this.isControlAura(aura.kind)) return;
     const existing = target.auras.findIndex((a) => a.id === aura.id && a.sourceId === aura.sourceId);
-    if (existing >= 0) target.auras.splice(existing, 1);
+    if (existing >= 0) {
+      this.applyNonPlayerStatAura(target, target.auras[existing], -1);
+      target.auras.splice(existing, 1);
+    }
     target.auras.push(aura);
+    this.applyNonPlayerStatAura(target, aura, 1);
     this.emit({ type: 'aura', targetId: target.id, name: aura.name, gained: true });
+    const source = this.entities.get(aura.sourceId);
+    this.refreshMobLeashFromAction(source ?? null, target);
     if (target.kind === 'player') {
       const meta = this.players.get(target.id);
       if (meta) recalcPlayerStats(target, meta.cls, meta.equipment);
     }
   }
 
+  private applyRootAura(source: Entity, target: Entity, name: string, id: string, duration: number, school: Aura['school']): void {
+    const remaining = this.diminishedCrowdControlDuration(source, target, 'root', duration);
+    if (remaining === null) return;
+    this.applyAura(target, {
+      id, name, kind: 'root',
+      remaining, duration: remaining, value: 0,
+      sourceId: source.id, school,
+    });
+  }
+
+  private diminishedCrowdControlDuration(
+    source: Entity,
+    target: Entity,
+    category: CrowdControlDrCategory,
+    duration: number,
+  ): number | null {
+    if (source.kind !== 'player' || target.kind !== 'player' || !this.isHostileTo(source, target)) {
+      return duration;
+    }
+    const existing = target.ccDr.get(category);
+    const stage = existing && existing.resetAt > this.time ? existing.stage : 0;
+    if (stage >= PVP_CC_DR_MULTIPLIERS.length) return null;
+    target.ccDr.set(category, { stage: stage + 1, resetAt: this.time + PVP_CC_DR_RESET });
+    return duration * PVP_CC_DR_MULTIPLIERS[stage];
+  }
+
   private mobsInRadius(pos: Vec3, radius: number): Entity[] {
     const out: Entity[] = [];
     this.grid.forEachInRadius(pos.x, pos.z, radius, (e) => {
       if (e.kind === 'mob' && !e.dead && e.hostile) out.push(e);
+    });
+    return out;
+  }
+
+  private hostilesInRadius(source: Entity, pos: Vec3, radius: number): Entity[] {
+    const out: Entity[] = [];
+    this.grid.forEachInRadius(pos.x, pos.z, radius, (e) => {
+      if (e.id !== source.id && !e.dead && this.isHostileTo(source, e)) out.push(e);
     });
     return out;
   }
@@ -1826,6 +1941,7 @@ export class Sim {
     target.lootable = false;
     target.wanderTarget = null;
     clearThreat(target);
+    this.clearEntityMarker(target.id); // a tamed pet is no longer a markable enemy
     // it's friendly now: nobody keeps swinging at it, other mobs forget it
     for (const other of this.players.values()) {
       const e = this.entities.get(other.entityId);
@@ -1843,6 +1959,8 @@ export class Sim {
   /** Dismissal, owner logout, or pet respawn: the beast goes back to the wild
    *  and walks home. Mobs that were fighting it forget it. */
   private releasePetToWild(pet: Entity): void {
+    this.clearNonPlayerStatAuras(pet);
+    pet.auras = [];
     pet.ownerId = null;
     pet.petTauntTimer = 0;
     pet.hostile = true;
@@ -1888,9 +2006,10 @@ export class Sim {
     const facingDiff = Math.abs(normAngle(angleTo(p.pos, t.pos) - p.facing));
     if (facingDiff > MELEE_ARC) return;
 
-    // hunter auto shot: ranged auto-attack with a dead zone inside 8 yards
+    // ranged auto-attack: hunters (auto shot, dead zone inside minRange) and
+    // casters (wand-style, no dead zone so they don't run into melee — #94)
     const ranged = CLASSES[meta.cls].ranged;
-    if (ranged && d >= HUNTER_RANGED_DEADZONE && d <= ranged.maxRange) {
+    if (ranged && d <= ranged.maxRange && d >= (ranged.wand ? 0 : ranged.minRange)) {
       this.rangedSwing(p, t, ranged);
       p.swingTimer = ranged.speed * this.swingIntervalMult(p);
       return;
@@ -1907,6 +2026,8 @@ export class Sim {
         const eff = queued.effects.find((e) => e.type === 'weaponDamage');
         if (p.resource >= queued.cost && eff && eff.type === 'weaponDamage') {
           this.spendResource(p, queued.cost);
+          // on-next-swing abilities (e.g. Raptor Strike) resolve here rather than
+          // in castAbility, so their cooldown must be applied on the swing too (#56)
           if (queued.def.cooldown > 0) p.cooldowns.set(queued.def.id, queued.def.cooldown);
           bonus = eff.bonus;
           abilityName = queued.def.name;
@@ -1920,19 +2041,25 @@ export class Sim {
     p.swingTimer = p.weapon.speed * this.swingIntervalMult(p);
   }
 
-  private rangedSwing(attacker: Entity, target: Entity, ranged: { min: number; max: number; speed: number }): void {
-    this.emit({ type: 'spellfx', sourceId: attacker.id, targetId: target.id, school: 'physical', fx: 'projectile' });
+  private rangedSwing(
+    attacker: Entity, target: Entity,
+    ranged: { min: number; max: number; speed: number; wand?: boolean; school?: string },
+  ): void {
+    const school = ranged.wand ? (ranged.school ?? 'arcane') : 'physical';
+    const label = ranged.wand ? 'Wand' : 'Auto Shot';
+    this.emit({ type: 'spellfx', sourceId: attacker.id, targetId: target.id, school, fx: 'projectile' });
     const missChance = meleeMissChance(attacker.level, target.level);
     if (this.rng.chance(missChance)) {
-      this.emit({ type: 'damage', sourceId: attacker.id, targetId: target.id, amount: 0, crit: false, school: 'physical', ability: 'Auto Shot', kind: 'miss' });
+      this.emit({ type: 'damage', sourceId: attacker.id, targetId: target.id, amount: 0, crit: false, school, ability: label, kind: 'miss' });
       this.enterCombat(attacker, target);
       return;
     }
     let dmg = this.rng.range(ranged.min, ranged.max) + (attacker.rangedPower / 14) * ranged.speed;
     const crit = this.rng.chance(attacker.critChance);
     if (crit) dmg *= 2;
-    dmg *= 1 - armorReduction(this.effectiveArmor(target), attacker.level);
-    this.dealDamage(attacker, target, Math.max(1, Math.round(dmg)), crit, 'physical', 'Auto Shot', 'hit');
+    // wand bolts are magic — armor doesn't apply; physical auto shot is mitigated
+    if (!ranged.wand) dmg *= 1 - armorReduction(this.effectiveArmor(target), attacker.level);
+    this.dealDamage(attacker, target, Math.max(1, Math.round(dmg)), crit, school, label, 'hit');
   }
 
   // Returns true if the swing connected.
@@ -1959,7 +2086,7 @@ export class Sim {
     // weapon imbues (seals, rockbiter) add flat damage to every swing
     let imbueBonus = 0;
     for (const a of attacker.auras) if (a.kind === 'imbue') imbueBonus += a.value;
-    let dmg = (this.rng.range(attacker.weapon.min, attacker.weapon.max) + (attacker.attackPower / 14) * attacker.weapon.speed) * mult + bonus + imbueBonus;
+    let dmg = (this.rng.range(attacker.weapon.min, attacker.weapon.max) + (this.effectiveAttackPower(attacker) / 14) * attacker.weapon.speed) * mult + bonus + imbueBonus;
     const critChance = Math.max(0.005, attacker.critChance - Math.max(0, target.level - attacker.level) * 0.002);
     const crit = this.rng.chance(critChance);
     if (crit) dmg *= 2;
@@ -1984,6 +2111,11 @@ export class Sim {
   private dealDamage(source: Entity | null, target: Entity, amount: number, crit: boolean, school: string, ability: string | null, kind: 'hit' | 'miss' | 'dodge', noRage = false, threatOpts?: { flat?: number; mult?: number }): void {
     if (target.dead) return;
     if (target.gm) return; // GM characters are invulnerable — every damage path funnels here
+    // A mob that broke leash (or a pet freed to the wild) is in 'evade': it has
+    // dropped its hate table and walks home without fighting back, healing to
+    // full only on arrival. Classic mechanics make it immune while it retreats,
+    // so it can't be chipped down — or killed outright — for a risk-free kill.
+    if (target.kind === 'mob' && target.aiState === 'evade') return;
     amount = Math.max(0, amount);
 
     // Defensive Stance, classic: deal 10% less, take 10% less (and +30% threat below)
@@ -2052,6 +2184,7 @@ export class Sim {
     }
 
     if (source && source.id !== target.id) this.enterCombat(source, target);
+    this.refreshMobLeashFromAction(source, target);
 
     // classic threat: damage (and the ability's flat bonus) lands on the mob's
     // hate table, scaled by the attacker's stance/form modifiers
@@ -2085,7 +2218,8 @@ export class Sim {
       // vanilla spell pushback: a landed hit delays the cast rather than
       // cancelling it (misses and fully absorbed hits don't push back)
       if (target.castingAbility && source && source.id !== target.id && amount > 0 && kind === 'hit') {
-        this.pushbackCast(target);
+        if (target.castingAbility === FISHING_CAST_ID) this.cancelCast(target);
+        else this.pushbackCast(target);
       }
     }
 
@@ -2113,9 +2247,15 @@ export class Sim {
   private handleDeath(e: Entity, killer: Entity | null): void {
     e.dead = true;
     e.hp = 0;
+    this.clearNonPlayerStatAuras(e);
     e.auras = [];
+    e.ccDr.clear();
     e.castingAbility = null;
     this.emit({ type: 'death', entityId: e.id, killerId: killer?.id ?? -1 });
+
+    // a dead mob keeps no raid marker — respawnMob reuses the same entity id,
+    // so a stale mark would otherwise reappear on the respawn
+    if (e.kind === 'mob') this.clearEntityMarker(e.id);
 
     // the dead drop off every hate table (and any taunt lock on them)
     for (const m of this.entities.values()) {
@@ -2149,9 +2289,10 @@ export class Sim {
     }
 
     if (e.kind === 'mob') {
+      const template = MOBS[e.templateId];
       e.aiState = 'dead';
       e.corpseTimer = CORPSE_DURATION;
-      e.respawnTimer = this.cfg.respawnSeconds * (MOBS[e.templateId]?.rare ? 4 : 1);
+      e.respawnTimer = this.cfg.respawnSeconds * (template?.respawnMult ?? (template?.rare ? 4 : 1));
       e.aggroTargetId = null;
       clearThreat(e);
       if (e.ownerId !== null) {
@@ -2193,7 +2334,7 @@ export class Sim {
           if (xpGain > 0 && mE.level < MAX_LEVEL) this.grantXp(xpGain, member);
           this.onMobKilledForQuests(e, member);
         }
-        this.rollLoot(e, meta);
+        this.rollLoot(e, meta, eligible);
       }
     }
   }
@@ -2217,15 +2358,24 @@ export class Sim {
     if (p.level >= MAX_LEVEL) meta.xp = 0;
   }
 
-  private rollLoot(mob: Entity, meta: PlayerMeta): void {
+  private needsQuestDrop(entry: LootEntry, meta: PlayerMeta): boolean {
+    if (!entry.questId || !entry.itemId) return false;
+    const qp = meta.questLog.get(entry.questId);
+    if (!qp || qp.state !== 'active') return false;
+    const quest = QUESTS[entry.questId];
+    const objIdx = quest.objectives.findIndex((o) => o.type === 'collect' && o.itemId === entry.itemId);
+    return objIdx < 0 || this.countItem(entry.itemId, meta.entityId) < quest.objectives[objIdx].count;
+  }
+
+  private rollLoot(mob: Entity, meta: PlayerMeta, eligible: PlayerMeta[] = [meta]): void {
     const template = MOBS[mob.templateId];
     if (!template) return;
     let copper = 0;
-    const items: InvSlot[] = [];
+    const items: LootSlot[] = [];
     const rolledGroups = new Set<string>();
     for (const entry of template.loot) {
-      // exclusive groups (boss "one of three" tables): a single rng draw is
-      // partitioned by the group entries' chances so exactly one drops.
+      // Exclusive groups: a single rng draw is partitioned by the group
+      // entries' chances, so at most one matching entry drops.
       // Exactly one rng.next() per group keeps replays deterministic.
       if (entry.rollGroup) {
         if (rolledGroups.has(entry.rollGroup)) continue;
@@ -2243,11 +2393,11 @@ export class Sim {
         continue;
       }
       if (entry.questId) {
-        const qp = meta.questLog.get(entry.questId);
-        if (!qp || qp.state !== 'active') continue;
-        const quest = QUESTS[entry.questId];
-        const objIdx = quest.objectives.findIndex((o) => o.type === 'collect' && o.itemId === entry.itemId);
-        if (objIdx >= 0 && this.countItem(entry.itemId!, meta.entityId) >= quest.objectives[objIdx].count) continue;
+        const questRecipients = eligible.filter((m) => this.needsQuestDrop(entry, m));
+        if (questRecipients.length === 0) continue;
+        if (!this.rng.chance(entry.chance)) continue;
+        items.push({ itemId: entry.itemId!, count: 1, personalFor: questRecipients.map((m) => m.entityId) });
+        continue;
       }
       if (!this.rng.chance(entry.chance)) continue;
       if (entry.copper) copper += this.rng.int(Math.ceil(entry.copper * 0.6), Math.ceil(entry.copper * 1.4));
@@ -2259,13 +2409,61 @@ export class Sim {
     }
   }
 
+  private rollGroupLoot(itemId: string, mob: Entity, looter: PlayerMeta): boolean {
+    if (!this.itemRequiresGroupRoll(itemId) || mob.tappedById === null) return false;
+    const party = this.partyOf(mob.tappedById);
+    if (!party || party.members.length <= 1) return false;
+    const candidates: PlayerMeta[] = [];
+    for (const pid of party.members) {
+      const candidate = this.players.get(pid);
+      const e = this.entities.get(pid);
+      if (candidate && e && !e.dead && dist2d(e.pos, mob.pos) <= PARTY_XP_RANGE) candidates.push(candidate);
+    }
+    if (candidates.length <= 1) return false;
+    let winner = candidates[0];
+    let bestRoll = -1;
+    for (const candidate of candidates) {
+      const roll = this.rng.int(1, 100);
+      if (roll > bestRoll) {
+        bestRoll = roll;
+        winner = candidate;
+      }
+    }
+    const itemName = ITEMS[itemId]?.name ?? itemId;
+    for (const candidate of candidates) {
+      this.emit({ type: 'loot', text: `${winner.name} wins ${itemName} (${bestRoll})`, pid: candidate.entityId });
+    }
+    this.addItem(itemId, 1, winner.entityId);
+    return true;
+  }
+
+  private lootSlotVisibleTo(slot: LootSlot, pid: number): boolean {
+    return !slot.personalFor || slot.personalFor.includes(pid);
+  }
+
+  private pruneCorpseLoot(mob: Entity): void {
+    if (!mob.loot) return;
+    mob.loot.items = mob.loot.items.filter((s) => s.count > 0 && (!s.personalFor || s.personalFor.length > 0));
+    if (mob.loot.copper <= 0 && mob.loot.items.length === 0) {
+      mob.loot = null;
+      mob.lootable = false;
+      mob.corpseTimer = Math.min(mob.corpseTimer, 4);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Mob AI
   // -------------------------------------------------------------------------
 
+  private refreshMobLeashFromAction(source: Entity | null, target: Entity): void {
+    if (!source || source.id === target.id || target.kind !== 'mob' || target.ownerId !== null || target.dead) return;
+    if (source.kind !== 'player' && source.ownerId === null) return;
+    target.leashAnchor = { ...target.pos };
+  }
+
   // When a mob's target dies/leaves it swings to its next-highest-threat
-  // attacker; with an empty hate table it falls back to the nearest living
-  // player, and failing that it goes home.
+  // attacker. With no living threat left, it evades home instead of grabbing a
+  // nearby bystander who never acted on the mob.
   private retargetMob(mob: Entity): void {
     const next = this.highestThreatTarget(mob);
     if (next) {
@@ -2274,16 +2472,8 @@ export class Sim {
       mob.inCombat = true;
       return;
     }
-    const near = this.nearestLivingPlayer(mob.pos, 35);
-    if (near) {
-      addThreat(mob, near.e.id, 1);
-      mob.aggroTargetId = near.e.id;
-      mob.aiState = 'chase';
-      mob.inCombat = true;
-    } else {
-      mob.aggroTargetId = null;
-      mob.aiState = 'evade';
-    }
+    mob.aggroTargetId = null;
+    mob.aiState = 'evade';
   }
 
   /** Highest-threat living attacker on the table; prunes stale entries. */
@@ -2336,15 +2526,18 @@ export class Sim {
     mob.aiState = 'chase';
     mob.aggroTargetId = target.id;
     mob.inCombat = true;
+    mob.leashAnchor = { ...mob.pos };
     addThreat(mob, target.id, 1); // seed the hate table so taunts/heals have a baseline
     if (social) {
-      const pullRadius = MOBS[mob.templateId]?.family === 'murloc' ? 18 : 12;
+      const family = MOBS[mob.templateId]?.family;
+      const pullRadius = (family && SOCIAL_PULL_RADIUS[family]) ?? DEFAULT_SOCIAL_PULL_RADIUS;
       this.grid.forEachInRadius(mob.pos.x, mob.pos.z, pullRadius, (m, d2) => {
         if (m.kind === 'mob' && m.id !== mob.id && !m.dead && m.hostile && m.aiState === 'idle' && m.ownerId === null
           && m.templateId === mob.templateId && d2 < pullRadius * pullRadius) {
           m.aiState = 'chase';
           m.aggroTargetId = target.id;
           m.inCombat = true;
+          m.leashAnchor = { ...m.pos };
           addThreat(m, target.id, 1);
         }
       });
@@ -2378,6 +2571,13 @@ export class Sim {
       this.updatePet(mob);
       return;
     }
+
+    // Self-healing safety net (#113/#99): every mob spawns hostile and only
+    // taming clears that (which always assigns an owner). A live, owner-less,
+    // non-hostile mob is therefore a leak — exactly the "immortal, invalid
+    // target" wolves players hit. Restore hostility so no mob can ever be left
+    // permanently untargetable, whatever path corrupted it.
+    if (!mob.hostile) mob.hostile = true;
 
     if (mob.inCombat) this.updateBossMechanics(mob);
 
@@ -2438,10 +2638,12 @@ export class Sim {
           break;
         }
         const leash = mob.spawnPos.x > DUNGEON_X_THRESHOLD ? DUNGEON_LEASH_DISTANCE : LEASH_DISTANCE;
-        if (dist2d(mob.pos, mob.spawnPos) > leash) {
+        const leashAnchor = mob.leashAnchor ?? mob.spawnPos;
+        if (dist2d(mob.pos, leashAnchor) > leash) {
           mob.aiState = 'evade';
           mob.aggroTargetId = null;
           clearThreat(mob);
+          mob.leashAnchor = null;
           break;
         }
         const d = dist2d(mob.pos, target.pos);
@@ -2466,18 +2668,19 @@ export class Sim {
           this.mobSwing(mob, target);
           mob.swingTimer = mob.weapon.speed * this.swingIntervalMult(mob);
         }
-        // boss pulse mechanic (Morthen's Shadow Pulse)
+        // Boss/miniboss pulse mechanic.
         const pulse = MOBS[mob.templateId]?.aoePulse;
         if (pulse) {
           mob.pulseTimer -= DT;
           if (mob.pulseTimer <= 0) {
             mob.pulseTimer = pulse.every;
-            this.emit({ type: 'spellfx', sourceId: mob.id, targetId: mob.id, school: 'shadow', fx: 'nova' });
+            const school = pulse.school ?? 'shadow';
+            this.emit({ type: 'spellfx', sourceId: mob.id, targetId: mob.id, school, fx: pulse.fx ?? 'nova' });
             for (const meta of this.players.values()) {
               const pe = this.entities.get(meta.entityId);
               if (pe && !pe.dead && dist2d(pe.pos, mob.pos) <= pulse.radius) {
                 const dmg = Math.round(this.rng.range(pulse.min, pulse.max));
-                this.dealDamage(mob, pe, dmg, false, 'shadow', pulse.name, 'hit', true);
+                this.dealDamage(mob, pe, dmg, false, school, pulse.name, 'hit', true);
               }
             }
           }
@@ -2485,22 +2688,44 @@ export class Sim {
         break;
       }
       case 'evade': {
-        const arrived = this.moveToward(mob, mob.spawnPos, mob.moveSpeed * EVADE_SPEED_MULT);
+        // moveToward has no pathfinding: a straight line home that crosses a prop
+        // (the camp tent/crate/campfire) or deep water makes no progress, so the
+        // mob stays evading — and therefore immune — forever. Walk home normally,
+        // but once stalled, phase straight through the blocker just until a normal
+        // step works again. Phasing always makes progress, so arrival is the
+        // backstop: worst case it phases the rest of the way home.
+        const phasing = mob.evadeStall >= EVADE_STALL_TIMEOUT;
+        const distBefore = dist2d(mob.pos, mob.spawnPos);
+        const arrived = this.moveToward(mob, mob.spawnPos, mob.moveSpeed * EVADE_SPEED_MULT, phasing);
         if (arrived) {
-          mob.aiState = 'idle';
-          mob.hp = mob.maxHp;
-          mob.auras = [];
-          mob.inCombat = false;
-          mob.tappedById = null;
-          clearThreat(mob);
-          this.despawnSummonedAdds(mob);
-          mob.firedSummons = 0;
-          mob.enraged = false;
-          mob.wanderTimer = this.rng.range(2, 8);
+          this.resetEvadingMob(mob);
+        } else if (phasing) {
+          if (!this.blockedTowardSpawn(mob, mob.spawnPos)) mob.evadeStall = 0; // cleared the obstacle
+        } else if (dist2d(mob.pos, mob.spawnPos) < distBefore - 1e-3) {
+          mob.evadeStall = 0; // walking home fine
+        } else {
+          mob.evadeStall += DT; // pinned on something
         }
         break;
       }
     }
+  }
+
+  // An evading mob has reached its spawn (walking or phasing): drop the pull
+  // entirely and return to idle at full health, ready to be pulled again.
+  private resetEvadingMob(mob: Entity): void {
+    mob.aiState = 'idle';
+    mob.hp = mob.maxHp;
+    mob.auras = [];
+    mob.inCombat = false;
+    mob.tappedById = null;
+    mob.leashAnchor = null;
+    mob.evadeStall = 0;
+    clearThreat(mob);
+    this.despawnSummonedAdds(mob);
+    mob.firedSummons = 0;
+    mob.enraged = false;
+    mob.wanderTimer = this.rng.range(2, 8);
   }
 
   private mobSwing(mob: Entity, target: Entity): void {
@@ -2515,7 +2740,7 @@ export class Sim {
       this.emit({ type: 'damage', sourceId: mob.id, targetId: target.id, amount: 0, crit: false, school: 'physical', ability: null, kind: 'dodge' });
       return;
     }
-    let dmg = this.rng.range(mob.weapon.min, mob.weapon.max);
+    let dmg = this.rng.range(mob.weapon.min, mob.weapon.max) + (this.effectiveAttackPower(mob) / 14) * mob.weapon.speed;
     const crit = this.rng.chance(0.05);
     if (crit) dmg *= 2;
     const enrage = MOBS[mob.templateId]?.enrage;
@@ -2596,15 +2821,25 @@ export class Sim {
     return best;
   }
 
-  private moveToward(e: Entity, dest: Vec3, speed: number): boolean {
+  // Step `e` one tick toward `dest`. With `ignoreObstacles`, the mover phases
+  // straight through props and water — used to free a stuck evader, never for
+  // normal locomotion. Returns true on arrival.
+  private moveToward(e: Entity, dest: Vec3, speed: number, ignoreObstacles = false): boolean {
     const d = dist2d(e.pos, dest);
     if (d < 0.3) return true;
     e.facing = angleTo(e.pos, dest);
     const step = Math.min(speed * DT, d);
     const nx = e.pos.x + Math.sin(e.facing) * step;
     const nz = e.pos.z + Math.cos(e.facing) * step;
+    const canSwim = this.mobCanSwim(MOBS[e.templateId]);
+    if (ignoreObstacles) {
+      e.pos.x = nx;
+      e.pos.z = nz;
+      const g = groundHeight(nx, nz, this.cfg.seed);
+      e.pos.y = Math.max(g, SWIM_SURFACE_Y); // ride the surface while phasing, don't sink under terrain/water
+      return d - step < 0.3;
+    }
     const ground = groundHeight(nx, nz, this.cfg.seed);
-    const canSwim = MOBS[e.templateId]?.family === 'murloc';
     // landlocked creatures stop at the waterline instead of walking under it
     if (!canSwim && ground < WATER_LEVEL - SWIM_DEPTH) return false;
     const resolved = resolvePosition(this.cfg.seed, nx, nz, BODY_RADIUS);
@@ -2615,7 +2850,24 @@ export class Sim {
     return d - step < 0.3;
   }
 
+  // Would a normal (collision- and water-aware) step toward `dest` be blocked —
+  // i.e. is a prop or deep water right in front of this mob? Used to decide when
+  // a phasing evader has cleared the obstacle and can walk normally again.
+  private blockedTowardSpawn(e: Entity, dest: Vec3): boolean {
+    const d = dist2d(e.pos, dest);
+    if (d < 0.3) return false;
+    const facing = angleTo(e.pos, dest);
+    const step = Math.min(e.moveSpeed * EVADE_SPEED_MULT * DT, d);
+    const nx = e.pos.x + Math.sin(facing) * step;
+    const nz = e.pos.z + Math.cos(facing) * step;
+    if (!this.mobCanSwim(MOBS[e.templateId]) && groundHeight(nx, nz, this.cfg.seed) < WATER_LEVEL - SWIM_DEPTH) return true;
+    const resolved = resolvePosition(this.cfg.seed, nx, nz, BODY_RADIUS);
+    // a collider ate most of the intended movement -> still blocked
+    return Math.hypot(nx - resolved.x, nz - resolved.z) > step * 0.5;
+  }
+
   private respawnMob(mob: Entity): void {
+    this.clearNonPlayerStatAuras(mob);
     mob.dead = false;
     mob.lootable = false;
     mob.loot = null;
@@ -2631,6 +2883,8 @@ export class Sim {
     mob.aiState = 'idle';
     mob.aggroTargetId = null;
     mob.inCombat = false;
+    mob.leashAnchor = null;
+    mob.evadeStall = 0;
     clearThreat(mob);
     this.despawnSummonedAdds(mob);
     mob.firedSummons = 0;
@@ -2813,12 +3067,51 @@ export class Sim {
     this.emit({ type: 'log', text: `Equipped ${def.name}.`, color: '#8f8', pid: meta.entityId });
   }
 
+  private hasFishableWaterAhead(p: Entity): boolean {
+    const sin = Math.sin(p.facing);
+    const cos = Math.cos(p.facing);
+    return FISHING_SAMPLE_DISTANCES.some((d) =>
+      groundHeight(p.pos.x + sin * d, p.pos.z + cos * d, this.cfg.seed) < WATER_LEVEL - SWIM_DEPTH);
+  }
+
+  private startFishing(p: Entity, meta: PlayerMeta): void {
+    if (p.dead) { this.error(meta.entityId, "You can't do that while dead."); return; }
+    if (p.inCombat) { this.error(meta.entityId, "You can't do that while in combat."); return; }
+    if (this.isSwimming(p)) { this.error(meta.entityId, "You can't do that while swimming."); return; }
+    if (p.castingAbility || isConsuming(p)) { this.error(meta.entityId, 'You are busy.'); return; }
+    if (!this.hasFishableWaterAhead(p)) { this.error(meta.entityId, 'You need to face fishable water.'); return; }
+    if (p.sitting) this.standUp(p);
+    p.castingAbility = FISHING_CAST_ID;
+    p.castTotal = FISHING_CAST_TIME;
+    p.castRemaining = FISHING_CAST_TIME;
+    p.channeling = false;
+    this.emit({ type: 'castStart', entityId: p.id, ability: FISHING_CAST_ID, time: FISHING_CAST_TIME });
+  }
+
+  private completeFishing(p: Entity, meta: PlayerMeta): void {
+    const roll = this.rng.next();
+    if (roll < 0.7) {
+      this.addItem('raw_mirror_trout', 1, meta.entityId);
+    } else if (roll < 0.9) {
+      this.addItem('tangled_weed', 1, meta.entityId);
+    } else {
+      this.emit({ type: 'log', text: 'No fish are biting.', color: '#999', pid: p.id });
+    }
+  }
+
   useItem(itemId: string, pid?: number): void {
     const r = this.resolve(pid);
     if (!r) return;
     const { meta, e: p } = r;
     const def = ITEMS[itemId];
-    if (!def || this.countItem(itemId, meta.entityId) <= 0 || p.dead) return;
+    if (!def) return;
+    if (this.countItem(itemId, meta.entityId) <= 0) { this.error(meta.entityId, "You don't have that item."); return; }
+    if (def.use?.type === 'fishing') {
+      this.startFishing(p, meta);
+      return;
+    }
+    if (p.castingAbility === FISHING_CAST_ID) { this.error(meta.entityId, 'You are busy.'); return; }
+    if (p.dead) return;
     if (def.kind === 'food' || def.kind === 'drink') {
       if (p.inCombat) { this.error(meta.entityId, "You can't do that while in combat."); return; }
       if (this.isSwimming(p)) { this.error(meta.entityId, "You can't do that while swimming."); return; }
@@ -2834,6 +3127,29 @@ export class Sim {
         remaining: CONSUME_DURATION,
       };
       this.emit({ type: 'log', text: def.kind === 'food' ? 'You sit down to eat.' : 'You sit down to drink.', color: '#999', pid: meta.entityId });
+    } else if (def.kind === 'potion') {
+      // instant, usable in combat, on a shared 60s cooldown (#103)
+      if (this.time < p.potionCooldownUntil) {
+        this.error(meta.entityId, 'That potion is not ready yet.');
+        return;
+      }
+      const restoresMana = (def.potionMana ?? 0) > 0 && p.resourceType === 'mana';
+      const restoresHp = (def.potionHp ?? 0) > 0 && p.hp < p.maxHp;
+      if (!restoresHp && !restoresMana) {
+        this.error(meta.entityId, p.hp >= p.maxHp && (def.potionMana ?? 0) === 0 ? 'You are already at full health.' : 'Nothing to restore.');
+        return;
+      }
+      this.removeItem(itemId, 1, meta.entityId);
+      p.potionCooldownUntil = this.time + POTION_COOLDOWN;
+      if (restoresHp) {
+        const heal = Math.min(def.potionHp!, p.maxHp - p.hp);
+        p.hp += heal;
+        this.emit({ type: 'heal', targetId: p.id, amount: heal });
+      }
+      if (restoresMana) {
+        p.resource = Math.min(p.maxResource, p.resource + def.potionMana!);
+      }
+      this.emit({ type: 'log', text: `You quaff ${def.name}.`, color: '#c9f', pid: meta.entityId });
     } else if (def.kind === 'weapon' || def.kind === 'armor') {
       this.equipItem(itemId, meta.entityId);
     }
@@ -2858,22 +3174,60 @@ export class Sim {
     this.emit({ type: 'vendor', action: 'buy', itemId, pid: meta.entityId });
   }
 
-  sellItem(itemId: string, pid?: number): void {
+  private vendorInRange(p: Entity): boolean {
+    return [...this.entities.values()].some((e) =>
+      e.kind === 'npc' && e.vendorItems.length > 0 && dist2d(p.pos, e.pos) <= INTERACT_RANGE + 2);
+  }
+
+  private recordVendorBuyback(meta: PlayerMeta, itemId: string, count: number): void {
+    const existingIndex = meta.vendorBuyback.findIndex((s) => s.itemId === itemId);
+    if (existingIndex >= 0) {
+      const [existing] = meta.vendorBuyback.splice(existingIndex, 1);
+      existing.count += count;
+      meta.vendorBuyback.unshift(existing);
+    } else {
+      meta.vendorBuyback.unshift({ itemId, count });
+    }
+    while (meta.vendorBuyback.length > VENDOR_BUYBACK_LIMIT) meta.vendorBuyback.pop();
+  }
+
+  sellItem(itemId: string, count = 1, pid?: number): void {
     const r = this.resolve(pid);
     if (!r) return;
     const { meta, e: p } = r;
     const def = ITEMS[itemId];
-    if (!def || this.countItem(itemId, meta.entityId) <= 0) { this.error(meta.entityId, "You don't have that item."); return; }
+    const available = this.countItem(itemId, meta.entityId);
+    if (!def || available <= 0) { this.error(meta.entityId, "You don't have that item."); return; }
     if (p.dead) { this.error(meta.entityId, "You can't do that while dead."); return; }
-    // mirror buyItem's gate: selling requires a vendor in interact range
-    const nearVendor = [...this.entities.values()].some((e) =>
-      e.kind === 'npc' && e.vendorItems.length > 0 && dist2d(p.pos, e.pos) <= INTERACT_RANGE + 2);
-    if (!nearVendor) { this.error(meta.entityId, 'There is no merchant nearby.'); return; }
+    const sellCount = Number.isFinite(count) ? Math.min(Math.floor(count), available) : 0;
+    if (sellCount <= 0) return;
+    if (!this.vendorInRange(p)) { this.error(meta.entityId, 'There is no merchant nearby.'); return; }
     if (def.kind === 'quest') { this.error(meta.entityId, 'You cannot sell quest items.'); return; }
-    this.removeItem(itemId, 1, meta.entityId);
-    meta.copper += def.sellValue;
+    this.removeItem(itemId, sellCount, meta.entityId);
+    this.recordVendorBuyback(meta, itemId, sellCount);
+    const payout = def.sellValue * sellCount;
+    meta.copper += payout;
     this.emit({ type: 'vendor', action: 'sell', itemId, pid: meta.entityId });
-    this.emit({ type: 'loot', text: `Sold ${def.name} for ${formatMoney(def.sellValue)}.`, pid: meta.entityId });
+    this.emit({ type: 'loot', text: `Sold ${def.name}${sellCount > 1 ? ' x' + sellCount : ''} for ${formatMoney(payout)}.`, pid: meta.entityId });
+  }
+
+  buyBackItem(itemId: string, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const { meta, e: p } = r;
+    const def = ITEMS[itemId];
+    const slot = meta.vendorBuyback.find((s) => s.itemId === itemId);
+    if (!def || !slot || slot.count <= 0) { this.error(meta.entityId, 'That item is not available for buyback.'); return; }
+    if (p.dead) { this.error(meta.entityId, "You can't do that while dead."); return; }
+    if (!this.vendorInRange(p)) { this.error(meta.entityId, 'There is no merchant nearby.'); return; }
+    if (meta.copper < def.sellValue) { this.error(meta.entityId, 'Not enough money.'); return; }
+    meta.copper -= def.sellValue;
+    slot.count -= 1;
+    if (slot.count <= 0) meta.vendorBuyback = meta.vendorBuyback.filter((s) => s !== slot);
+    this.addItemSilent(itemId, 1, meta);
+    this.onInventoryChangedForQuests(meta);
+    this.emit({ type: 'vendor', action: 'buyback', itemId, pid: meta.entityId });
+    this.emit({ type: 'loot', text: `Bought back ${def.name} for ${formatMoney(def.sellValue)}.`, pid: meta.entityId });
   }
 
   private addItemSilent(itemId: string, count: number, meta: PlayerMeta): void {
@@ -2919,11 +3273,21 @@ export class Sim {
       meta.copper += mob.loot.copper;
       meta.counters.lootCopper += mob.loot.copper;
       this.emit({ type: 'loot', text: `You loot ${formatMoney(mob.loot.copper)}.`, pid: meta.entityId });
+      mob.loot.copper = 0;
     }
-    for (const s of mob.loot.items) this.addItem(s.itemId, s.count, meta.entityId);
-    mob.loot = null;
-    mob.lootable = false;
-    mob.corpseTimer = Math.min(mob.corpseTimer, 4);
+    for (const s of [...mob.loot.items]) {
+      if (!this.lootSlotVisibleTo(s, meta.entityId)) continue;
+      if (s.personalFor) {
+        this.addItem(s.itemId, 1, meta.entityId);
+        s.personalFor = s.personalFor.filter((id) => id !== meta.entityId);
+        continue;
+      }
+      for (let i = 0; i < s.count; i++) {
+        if (!this.rollGroupLoot(s.itemId, mob, meta)) this.addItem(s.itemId, 1, meta.entityId);
+      }
+      s.count = 0;
+    }
+    this.pruneCorpseLoot(mob);
     if (p.targetId === mobId) p.targetId = null;
   }
 
@@ -3074,7 +3438,7 @@ export class Sim {
       meta.copper += quest.copperReward;
       this.emit({ type: 'loot', text: `You receive ${formatMoney(quest.copperReward)}.`, pid: meta.entityId });
     }
-    const rewardItem = quest.itemRewards[meta.cls] ?? quest.itemRewards[REWARD_ARCHETYPE[meta.cls]];
+    const rewardItem = questRewardItemId(quest, meta.cls);
     if (rewardItem) this.addItem(rewardItem, 1, meta.entityId);
     this.grantXp(quest.xpReward, meta);
     this.emit({ type: 'questDone', questId, pid: meta.entityId });
@@ -3148,6 +3512,7 @@ export class Sim {
     this.rebucket(p);
     p.facing = 0;
     p.auras = [];
+    p.ccDr.clear();
     recalcPlayerStats(p, meta.cls, meta.equipment);
     p.hp = p.maxHp;
     p.resource = p.resourceType === 'mana' ? p.maxResource : p.resourceType === 'energy' ? 100 : 0;
@@ -3176,6 +3541,11 @@ export class Sim {
     if (!raw) return null;
     if (!this.chatAllowed(r.meta.entityId)) {
       this.error(r.meta.entityId, 'You are sending messages too quickly.');
+      return null;
+    }
+
+    if (/^\/who(?:\s|$)/i.test(raw)) {
+      this.error(r.meta.entityId, 'The /who roster is available in online play.');
       return null;
     }
 
@@ -3260,8 +3630,12 @@ export class Sim {
   }
 
   private isFriendlyTo(caster: Entity, target: Entity): boolean {
-    if (target.kind !== 'player') return false;
-    return !this.isHostileTo(caster, target);
+    if (target.kind === 'player') return !this.isHostileTo(caster, target);
+    if (target.kind === 'mob' && target.ownerId !== null) {
+      const owner = this.entities.get(target.ownerId);
+      return !!owner && owner.kind === 'player' && !this.isHostileTo(caster, owner);
+    }
+    return false;
   }
 
   // -------------------------------------------------------------------------
@@ -3310,6 +3684,11 @@ export class Sim {
     const invite = this.partyInvites.get(r.meta.entityId);
     if (!invite || invite.expires < this.time) { this.error(r.meta.entityId, 'The invitation has expired.'); return; }
     this.partyInvites.delete(r.meta.entityId);
+    // A player can hold a stale incoming invite while having since joined or
+    // formed a party of their own (inviting others never consumes one's own
+    // pending invite). Accepting now would add them to a second party's member
+    // list, corrupting the "at most one party" invariant.
+    if (this.partyOf(r.meta.entityId)) { this.error(r.meta.entityId, 'You are already in a party.'); return; }
     const leaderMeta = this.players.get(invite.fromPid);
     if (!leaderMeta) return;
     let party = this.partyOf(invite.fromPid);
@@ -3366,6 +3745,7 @@ export class Sim {
         this.emit({ type: 'log', text: 'Your party has disbanded.', color: '#aaf', pid: mPid });
       }
       this.parties.delete(party.id);
+      this.partyMarkers.delete(party.id);
     } else if (party.leader === pid) {
       party.leader = party.members[0];
       const newLeader = this.players.get(party.leader);
@@ -3373,6 +3753,62 @@ export class Sim {
         this.emit({ type: 'log', text: `${newLeader?.name ?? 'Someone'} is now the party leader.`, color: '#aaf', pid: mPid });
       }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Raid markers (party-scoped target markers)
+  // -------------------------------------------------------------------------
+
+  // Every mark visible to the actor's party, as { entityId: markerId }. Empty
+  // when the actor is not in a party. Pure read — cleanup happens on the
+  // death/despawn/disband hooks, never here.
+  markersFor(pid: number): Record<number, number> {
+    const party = this.partyOf(pid);
+    if (!party) return {};
+    const marks = this.partyMarkers.get(party.id);
+    if (!marks) return {};
+    const out: Record<number, number> = {};
+    for (const [eid, mid] of marks) out[eid] = mid;
+    return out;
+  }
+
+  setMarker(entityId: number, markerId: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const party = this.partyOf(r.meta.entityId);
+    if (!party) { this.error(r.meta.entityId, 'You must be in a party to use raid markers.'); return; }
+    if (!Number.isInteger(markerId) || markerId < 0 || markerId > 7) return;
+    // markable: a live, wild, hostile mob (not players, NPCs, corpses, or pets)
+    const target = this.entities.get(entityId);
+    if (!target || target.kind !== 'mob' || target.dead || !target.hostile || target.ownerId !== null) return;
+    let marks = this.partyMarkers.get(party.id);
+    if (!marks) { marks = new Map(); this.partyMarkers.set(party.id, marks); }
+    // re-applying the same symbol to the same mob toggles it off
+    if (marks.get(entityId) === markerId) { marks.delete(entityId); return; }
+    // a symbol is unique within the party: take it off whatever held it
+    for (const [eid, mid] of marks) { if (mid === markerId) marks.delete(eid); }
+    marks.set(entityId, markerId);
+  }
+
+  clearMarker(entityId: number, pid?: number): void {
+    const r = this.resolve(pid);
+    if (!r) return;
+    const party = this.partyOf(r.meta.entityId);
+    if (!party) return;
+    this.partyMarkers.get(party.id)?.delete(entityId);
+  }
+
+  // The local player's view of one entity's mark (for the renderer). Direct
+  // lookup, no per-call allocation.
+  markerFor(entityId: number): number | null {
+    const party = this.partyOf(this.primaryId);
+    if (!party) return null;
+    return this.partyMarkers.get(party.id)?.get(entityId) ?? null;
+  }
+
+  // Strip an entity's mark from every party — used when it dies or despawns.
+  private clearEntityMarker(entityId: number): void {
+    for (const marks of this.partyMarkers.values()) marks.delete(entityId);
   }
 
   // -------------------------------------------------------------------------
@@ -3485,6 +3921,7 @@ export class Sim {
     const eb = this.entities.get(duel.b);
     // stop the combatants from swinging at each other
     for (const e of [ea, eb]) {
+      if (e) e.ccDr.clear();
       if (e && e.targetId !== null && (e.targetId === duel.a || e.targetId === duel.b)) {
         e.autoAttack = false;
       }
@@ -3558,7 +3995,19 @@ export class Sim {
       seen.add(match);
       const ea = this.entities.get(match.a);
       const eb = this.entities.get(match.b);
-      if (!ea || !eb) { this.endArenaMatch(match, ea ? match.a : eb ? match.b : null, 'forfeit'); continue; }
+      if (!ea || !eb) {
+        // someone logged out: an already-decided bout just sends the survivor
+        // home; an in-progress one is forfeited to the remaining fighter
+        if (match.state === 'over') this.returnFromArena(match);
+        else this.endArenaMatch(match, ea ? match.a : eb ? match.b : null, 'forfeit');
+        continue;
+      }
+      if (match.state === 'over') {
+        // aftermath: both already cleansed and scored — count down, then go home
+        match.timer -= DT;
+        if (match.timer <= 0) this.returnFromArena(match);
+        continue;
+      }
       if (match.state === 'countdown') {
         const before = Math.ceil(match.timer);
         match.timer -= DT;
@@ -3569,7 +4018,7 @@ export class Sim {
         if (match.timer <= 0) {
           match.state = 'active';
           match.timer = 0;
-          for (const e of [ea, eb]) this.resetForArena(e);
+          for (const e of [ea, eb]) this.readyArenaFighter(e, { clearPrep: false });
           for (const mPid of [match.a, match.b]) {
             this.emit({ type: 'log', text: 'Fight!', color: '#ff5a3c', pid: mPid });
             this.emit({ type: 'arenaStart', pid: mPid });
@@ -3659,9 +4108,17 @@ export class Sim {
   // A clean slate so the bout is decided by play, not by what each fighter
   // walked in carrying: full health/resource, cooldowns and combat reset.
   private resetForArena(e: Entity): void {
+    this.readyArenaFighter(e, { clearPrep: true });
+  }
+
+  private readyArenaFighter(e: Entity, opts: { clearPrep: boolean }): void {
+    if (opts.clearPrep) {
+      e.auras = [];
+      e.cooldowns.clear();
+      e.ccDr.clear();
+    }
     const meta = this.players.get(e.id);
     if (meta) recalcPlayerStats(e, meta.cls, meta.equipment);
-    e.auras = [];
     e.hp = e.maxHp;
     e.resource = e.resourceType === 'mana' ? e.maxResource : e.resourceType === 'energy' ? 100 : 0;
     e.targetId = null;
@@ -3672,7 +4129,6 @@ export class Sim {
     e.channeling = false;
     e.comboPoints = 0;
     e.comboTargetId = null;
-    e.cooldowns.clear();
     e.gcdRemaining = 0;
     e.swingTimer = 0;
     e.chargeTargetId = null;
@@ -3684,11 +4140,11 @@ export class Sim {
     e.drinking = null;
   }
 
-  // winnerPid null = draw; reason is informational (defeat/timeout/forfeit).
+  // Decide a bout: score it (once), then either send a survivor home now (a
+  // forfeit, where the other fighter is gone) or hold both on the sands for a
+  // brief aftermath before returning them. winnerPid null = draw; reason is
+  // informational (defeat/timeout/forfeit).
   private endArenaMatch(match: ArenaMatch, winnerPid: number | null, reason: 'defeat' | 'timeout' | 'forfeit'): void {
-    this.arenaMatches.delete(match.a);
-    this.arenaMatches.delete(match.b);
-    this.arenaBusySlots.delete(match.slot);
     const aMeta = this.players.get(match.a);
     const bMeta = this.players.get(match.b);
     const ea = this.entities.get(match.a);
@@ -3721,25 +4177,36 @@ export class Sim {
       });
     }
 
-    // restore both fighters to where they queued from, healed and out of combat
-    for (const [e, ret] of [[ea, match.returnA], [eb, match.returnB]] as const) {
+    // a forfeit (rage-quit / disconnect) has no aftermath — send the survivor
+    // home immediately rather than leaving them on empty sands
+    if (reason === 'forfeit' || !ea || !eb) { this.returnFromArena(match); return; }
+
+    // decided bout: cleanse both right now so no arena auras/DoTs tick during
+    // the wait, then hold them on the sands for the aftermath countdown
+    this.resetForArena(ea);
+    this.resetForArena(eb);
+    match.state = 'over';
+    match.timer = ARENA_RETURN_DELAY;
+    for (const mPid of [match.a, match.b]) {
+      this.emit({ type: 'log', text: 'The bout is decided. Returning to the world…', color: '#ffa040', pid: mPid });
+    }
+  }
+
+  // Teleport both fighters back to where they queued, fully cleansed (no arena
+  // auras, DoTs, debuffs, cooldowns or combat state follow them out), and
+  // release the instance slot.
+  private returnFromArena(match: ArenaMatch): void {
+    this.arenaMatches.delete(match.a);
+    this.arenaMatches.delete(match.b);
+    this.arenaBusySlots.delete(match.slot);
+    for (const [e, ret] of [[this.entities.get(match.a), match.returnA], [this.entities.get(match.b), match.returnB]] as const) {
       if (!e) continue;
-      const meta = this.players.get(e.id);
+      this.resetForArena(e); // strips every aura/effect/cooldown and heals to full
       e.pos = this.groundPos(ret.x, ret.z);
       e.prevPos = { ...e.pos };
       e.facing = ret.facing;
-      this.rebucket(e);
-      if (meta) recalcPlayerStats(e, meta.cls, meta.equipment);
-      e.auras = [];
       e.dead = false;
-      e.hp = e.maxHp;
-      e.resource = e.resourceType === 'mana' ? e.maxResource : e.resourceType === 'energy' ? 100 : 0;
-      e.targetId = null;
-      e.autoAttack = false;
-      e.castingAbility = null;
-      e.channeling = false;
-      e.combatTimer = 99;
-      e.inCombat = false;
+      this.rebucket(e);
       this.emit({ type: 'respawn', pid: e.id });
     }
   }
@@ -3770,7 +4237,10 @@ export class Sim {
       const oppMeta = this.players.get(oppPid);
       const oppE = this.entities.get(oppPid);
       if (oppMeta && oppE) {
-        matchInfo = { state: match.state, oppName: oppMeta.name, oppClass: oppMeta.cls, oppLevel: oppE.level, oppPid };
+        matchInfo = {
+          state: match.state, oppName: oppMeta.name, oppClass: oppMeta.cls, oppLevel: oppE.level, oppPid,
+          returnIn: match.state === 'over' ? Math.max(0, Math.ceil(match.timer)) : undefined,
+        };
       }
     }
     return {

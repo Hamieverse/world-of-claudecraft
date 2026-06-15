@@ -126,6 +126,19 @@ describe('chat channels', () => {
     expect(events.some((e) => e.type === 'error' && e.text.includes('/dance'))).toBe(true);
   });
 
+  it('/who explains that the roster is online-only in offline sim play', () => {
+    const sim = makeWorld();
+    const a = sim.addPlayer('warrior', 'Aleph');
+    sim.tick();
+    sim.chat('/who', a);
+    const events = sim.tick();
+    expect(chatEvents(events)).toHaveLength(0);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'error',
+      text: 'The /who roster is available in online play.',
+    }));
+  });
+
   it('exact-case whisper wins over a case-variant squatter', () => {
     const sim = makeWorld();
     const a = sim.addPlayer('warrior', 'Aleph');

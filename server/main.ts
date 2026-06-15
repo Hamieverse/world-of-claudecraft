@@ -14,7 +14,7 @@ import {
   hashPassword, verifyPassword, newToken, validUsernameShape, offensiveName, validPassword, normalizeCharName,
 } from './auth';
 import { json, readBody } from './http_util';
-import { rateLimited } from './ratelimit';
+import { rateLimited, authThrottled, recordAuthFailure, clearAuthFailures } from './ratelimit';
 import { handleAdminApi } from './admin';
 import { GameServer } from './game';
 import { REALM, REALM_DIRECTORY, REALM_ORIGINS } from './realm';
@@ -161,12 +161,20 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
     }
     if (req.method === 'POST' && url === '/api/login') {
       const body = await readBody(req);
-      const account = typeof body.username === 'string' ? await findAccount(body.username) : null;
+      const username = typeof body.username === 'string' ? body.username : '';
+      // Per-account brute-force throttle (#93). The message is identical to a
+      // bad-password response so it never reveals whether the account exists.
+      if (username && authThrottled(username)) {
+        return json(res, 429, { error: 'too many failed attempts — wait a few minutes and try again' });
+      }
+      const account = username ? await findAccount(username) : null;
       if (!account || !(await verifyPassword(String(body.password ?? ''), account.password_hash))) {
+        if (username) recordAuthFailure(username);
         return json(res, 401, { error: 'invalid username or password' });
       }
       const status = await moderationStatusForAccount(account.id);
       if (status.locked) return json(res, 403, { error: status.message });
+      clearAuthFailures(username); // correct password: forgive earlier typos
       await touchLogin(account.id);
       const token = newToken();
       await saveToken(token, account.id);

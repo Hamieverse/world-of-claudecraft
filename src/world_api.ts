@@ -98,11 +98,12 @@ export interface ArenaInfo {
   queueSize: number;
   // present only while in a match
   match: {
-    state: 'countdown' | 'active';
+    state: 'countdown' | 'active' | 'over';
     oppName: string;
     oppClass: PlayerClass;
     oppLevel: number;
     oppPid: number;
+    returnIn?: number; // whole seconds left in the post-bout aftermath ('over')
   } | null;
   // live standings of rated players currently online, best first
   ladder: ArenaLadderEntry[];
@@ -143,6 +144,7 @@ export interface IWorld {
   player: Entity;
   moveInput: MoveInput;
   inventory: InvSlot[];
+  vendorBuyback: InvSlot[];
   equipment: Partial<Record<EquipSlot, string>>;
   copper: number;
   xp: number;
@@ -165,7 +167,8 @@ export interface IWorld {
   equipItem(itemId: string): void;
   useItem(itemId: string): void;
   buyItem(npcId: number, itemId: string): void;
-  sellItem(itemId: string): void;
+  sellItem(itemId: string, count?: number): void;
+  buyBackItem(itemId: string): void;
   releaseSpirit(): void;
   chat(text: string): void;
   // social systems
@@ -179,6 +182,10 @@ export interface IWorld {
   partyDecline(): void;
   partyLeave(): void;
   partyKick(targetPid: number): void;
+  // raid/target markers (party-scoped): markerId 0..7, null = no mark
+  markerFor(entityId: number): number | null;
+  setMarker(entityId: number, markerId: number): void;
+  clearMarker(entityId: number): void;
   tradeRequest(targetPid: number): void;
   tradeAccept(): void;
   tradeSetOffer(items: InvSlot[], copper: number): void;

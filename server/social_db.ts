@@ -17,7 +17,54 @@ CREATE INDEX IF NOT EXISTS characters_realm ON characters(realm);
 -- global unique on characters.name to a (realm, name) composite. This is a
 -- constraint relaxation, so existing globally-unique rows always satisfy it.
 ALTER TABLE characters DROP CONSTRAINT IF EXISTS characters_name_key;
+-- dedupe case-insensitive character names before adding the unique index.
+-- The earliest character keeps the display name; later collisions get a
+-- temporary suffix and force_rename so the player can choose a new name.
+DO $$
+DECLARE
+  rec RECORD;
+  suffix_index INTEGER;
+  suffix_value INTEGER;
+  suffix TEXT;
+  candidate TEXT;
+BEGIN
+  FOR rec IN
+    WITH ranked AS (
+      SELECT id, realm, name,
+             row_number() OVER (PARTITION BY realm, lower(name) ORDER BY created_at, id) AS rn
+      FROM characters
+    )
+    SELECT id, realm, name FROM ranked WHERE rn > 1 ORDER BY realm, lower(name), rn
+  LOOP
+    suffix_index := 1;
+    LOOP
+      suffix_value := suffix_index;
+      suffix := '';
+      WHILE suffix_value > 0 LOOP
+        suffix_value := suffix_value - 1;
+        suffix := chr(97 + (suffix_value % 26)) || suffix;
+        suffix_value := suffix_value / 26;
+      END LOOP;
+      candidate := left(rec.name, greatest(1, 16 - char_length(suffix))) || suffix;
+      EXIT WHEN NOT EXISTS (
+        SELECT 1 FROM characters c
+        WHERE c.realm = rec.realm
+          AND lower(c.name) = lower(candidate)
+          AND c.id <> rec.id
+      );
+      suffix_index := suffix_index + 1;
+    END LOOP;
+
+    UPDATE characters
+       SET name = candidate,
+           force_rename = TRUE,
+           updated_at = now()
+     WHERE id = rec.id;
+  END LOOP;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS characters_realm_name ON characters(realm, name);
+CREATE UNIQUE INDEX IF NOT EXISTS characters_realm_lower_name_unique
+  ON characters (realm, lower(name));
 CREATE INDEX IF NOT EXISTS characters_realm_lower_name_prefix
   ON characters (realm, lower(name) text_pattern_ops);
 

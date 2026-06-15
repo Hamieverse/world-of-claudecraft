@@ -90,6 +90,10 @@ describe("i18n Localization Key Coverage", () => {
     "abilityUi.actionBar.attackName",
     "abilityUi.actionBar.attackTooltip",
     "abilityUi.actionBar.emptySlot",
+    "abilityUi.actionBar.clearHint",
+    "abilityUi.actionBar.itemInBags",
+    "abilityUi.actionBar.itemNoneInBags",
+    "abilityUi.cast.fishing",
     "abilityUi.spellbook.title",
     "abilityUi.spellbook.classSubtitle",
     "abilityUi.spellbook.trainableAtLevel",
@@ -130,21 +134,84 @@ describe("i18n Localization Key Coverage", () => {
     "itemUi.slots.mainhand",
     "itemUi.quality.rare",
     "itemUi.kind.quest",
+    "itemUi.kind.tool",
+    "itemUi.kind.potion",
     "itemUi.stats.attackPower",
     "itemUi.tooltip.damageSpeed",
     "itemUi.tooltip.useFood",
+    "itemUi.tooltip.useFishing",
+    "itemUi.tooltip.useHealingPotion",
+    "itemUi.tooltip.useManaPotion",
+    "itemUi.tooltip.clickUseInstant",
+    "itemUi.tooltip.clickUse",
+    "itemUi.tooltip.clickBuyback",
     "itemUi.tooltip.sellPrice",
     "itemUi.bags.title",
     "itemUi.bags.itemAria",
     "itemUi.equipment.levelClass",
     "itemUi.vendor.goodsTitle",
     "itemUi.vendor.buyAria",
+    "itemUi.vendor.buybackTitle",
+    "itemUi.vendor.buybackEmpty",
+    "itemUi.vendor.buybackAria",
+    "itemUi.vendor.sellQuantityTitle",
+    "itemUi.vendor.sellQuantityInput",
+    "itemUi.vendor.sellQuantityConfirm",
+    "itemUi.vendor.sellQuantityCancel",
     "itemUi.market.title",
     "itemUi.market.sellNote",
     "itemUi.market.buyAria",
     "itemUi.logs.sellerSold",
+    "itemUi.logs.boughtBackItem",
     "itemUi.errors.tooManyListings",
     "itemUi.loot.takeAll",
+  ];
+  const phaseElevenMergeKeys: TranslationKey[] = [
+    "hud.options.mouseCamera",
+    "hud.options.keybindHelpMouseCamera",
+    "hud.markers.names.star",
+    "hud.markers.names.circle",
+    "hud.markers.names.diamond",
+    "hud.markers.names.triangle",
+    "hud.markers.names.moon",
+    "hud.markers.names.square",
+    "hud.markers.names.cross",
+    "hud.markers.names.skull",
+    "hud.markers.clear",
+    "hud.markers.cancel",
+    "hud.markers.markerAria",
+    "hud.markers.markerSelectedAria",
+    "hud.social.status.online",
+    "hud.social.status.offline",
+    "hud.social.status.combat",
+    "hud.social.status.dungeon",
+    "hud.social.status.dead",
+    "hud.social.statusWithZone",
+    "hud.social.ranks.leader",
+    "hud.social.ranks.officer",
+    "hud.social.ranks.member",
+    "hud.social.guildHeadOne",
+    "hud.social.guildHeadMany",
+    "hud.arena.title",
+    "hud.arena.subtitle",
+    "hud.arena.close",
+    "hud.arena.offlineNote",
+    "hud.arena.playerClassTitle",
+    "hud.arena.playerLevelClassTitle",
+    "hud.arena.noChallengers",
+    "hud.arena.matchInProgress",
+    "hud.arena.leaveQueue",
+    "hud.arena.searching",
+    "hud.arena.enterQueue",
+    "hud.arena.queueNote",
+    "hud.arena.ladderAllTime",
+    "hud.arena.ladderOnline",
+    "hud.arena.ratingSummary",
+    "hud.arena.statusCountdown",
+    "hud.arena.statusReturning",
+    "hud.arena.statusFight",
+    "hud.arena.vsLine",
+    "hud.arena.levelClass",
   ];
   const interpolationValues: Record<string, string | number> = {
     active: 3,
@@ -172,7 +239,9 @@ describe("i18n Localization Key Coverage", () => {
     kind: "Weapon",
     label: "Wolf",
     level: 10,
+    losses: 4,
     loser: "Mira",
+    marker: "Skull",
     max: 25,
     message: "Meet at the inn",
     min: 16,
@@ -199,6 +268,7 @@ describe("i18n Localization Key Coverage", () => {
     tab: "Damage",
     target: "Wolf",
     view: "Current",
+    wins: 9,
     winner: "Rook",
     total: 125,
     used: 2,
@@ -454,6 +524,18 @@ describe("i18n Localization Key Coverage", () => {
         setLanguage(lang);
         expect(t(key), `${lang}.${key}`).not.toBe(key);
         expect(t(key).trim().length, `${lang}.${key}`).toBeGreaterThan(0);
+      }
+    }
+    setLanguage("en");
+  });
+
+  it("should include Phase 11 merge UI keys in every locale", () => {
+    for (const key of phaseElevenMergeKeys) {
+      for (const lang of supportedLanguages) {
+        setLanguage(lang);
+        const text = t(key, interpolationValues);
+        expect(text, `${lang}.${key}`).not.toBe(key);
+        expect(text.trim().length, `${lang}.${key}`).toBeGreaterThan(0);
       }
     }
     setLanguage("en");

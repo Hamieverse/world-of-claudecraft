@@ -71,6 +71,28 @@ describe('nine classes', () => {
     expect(p.hp).toBe(hpBefore); // fully soaked
   });
 
+  it('friendly target spells can affect selected players', () => {
+    const sim = makeWorld();
+    const priestId = sim.addPlayer('priest', 'Healer');
+    const priest = sim.entities.get(priestId)!;
+    const allyId = sim.addPlayer('warrior', 'Ally');
+    const ally = sim.entities.get(allyId)!;
+    teleport(sim, priestId, ally.pos.x + 5, ally.pos.z);
+    sim.setPlayerLevel(6, priestId);
+    priest.resource = priest.maxResource;
+    ally.hp = 20;
+
+    sim.targetEntity(ally.id, priestId);
+    sim.castAbility('lesser_heal', priestId);
+    for (let i = 0; i < 20 * 3; i++) sim.tick();
+    expect(ally.hp).toBeGreaterThan(20);
+
+    for (let i = 0; i < 25; i++) sim.tick();
+    sim.castAbility('power_word_shield', priestId);
+    sim.tick();
+    expect(ally.auras.some((a) => a.kind === 'absorb')).toBe(true);
+  });
+
   it('renew ticks healing over time', () => {
     const sim = new Sim({ seed: 42, playerClass: 'priest' });
     sim.setPlayerLevel(8);
@@ -131,8 +153,10 @@ describe('nine classes', () => {
     const sim = new Sim({ seed: 42, playerClass: 'hunter' });
     const p = sim.player;
     const wolf = nearestMob(sim, 'forest_wolf');
-    wolf.hp = 30;
-    teleport(sim, p.id, wolf.pos.x + 20, wolf.pos.z);
+    p.maxHp = 500;
+    p.hp = 500;
+    wolf.hp = 60;
+    teleport(sim, p.id, wolf.pos.x + 35, wolf.pos.z);
     sim.targetEntity(wolf.id);
     face(sim, p.id, wolf.id);
     sim.startAutoAttack();
@@ -251,6 +275,30 @@ describe('parties', () => {
     sim.partyAccept(d);
     expect(sim.partyOf(e)?.members).toEqual([e, d]);
     expect(sim.partyOf(a)).toBe(null);
+  });
+
+  it('refuses to accept an invite while already in a party', () => {
+    // A player can become a party leader (by inviting someone who accepts)
+    // while still holding an unconsumed incoming invite — inviting someone
+    // never consumes the inviter's own pending invite. Accepting that stale
+    // invite must NOT leave the player a member of two parties at once.
+    const sim = makeWorld();
+    const a = sim.addPlayer('warrior', 'Aleph');
+    const c = sim.addPlayer('rogue', 'Gimel');
+    const d = sim.addPlayer('mage', 'Dalet');
+    // C invites A while A is solo (stored, unaccepted).
+    sim.partyInvite(a, c);
+    // A forms a party of its own by inviting D, who accepts. A is now leader.
+    sim.partyInvite(d, a);
+    sim.partyAccept(d);
+    expect(sim.partyOf(a)?.leader).toBe(a);
+    const ownParty = sim.partyOf(a)!.id;
+    // A now accepts C's stale invite — this must be rejected.
+    sim.partyAccept(a);
+    // A stays in its own party only; no second membership is created.
+    expect(sim.partyOf(a)?.id).toBe(ownParty);
+    expect(sim.partyOf(c)?.members.includes(a) ?? false).toBe(false);
+    expect(sim.partyOf(a)?.members).toEqual([a, d]);
   });
 
   it('partyInfo reports per-member combat state for the UI badges', () => {

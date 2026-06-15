@@ -3,21 +3,29 @@ import type { IWorld, MarketInfo } from '../world_api';
 import { Renderer } from '../render/renderer';
 import {
   ABILITIES, CLASSES, DUNGEON_LIST, DUNGEON_X_THRESHOLD, ITEMS, MOBS, NPCS, QUESTS,
-  WORLD_MAX_X, WORLD_MAX_Z, WORLD_MIN_X, WORLD_MIN_Z, ZONES, dungeonAt, zoneAt,
+  WORLD_MAX_X, WORLD_MAX_Z, WORLD_MIN_X, WORLD_MIN_Z, ZONES, dungeonAt, questRewardItem, zoneAt,
+  zoneWelcomeText,
 } from '../sim/data';
 import type { ZoneDef } from '../sim/data';
 import type { AbilityDef, EquipSlot, InvSlot, PlayerClass, ResourceType, Stats } from '../sim/types';
-import { AbilityEffect, CONSUME_DURATION, Entity, GCD, ItemDef, SimEvent, dist2d, xpForLevel, MAX_LEVEL, MELEE_RANGE } from '../sim/types';
+import {
+  AbilityEffect, CONSUME_DURATION, Entity, FISHING_CAST_ID, GCD, ItemDef, SimEvent,
+  dist2d, xpForLevel, MAX_LEVEL, MELEE_RANGE,
+} from '../sim/types';
 import { terrainHeight, WATER_LEVEL, roadDistance } from '../sim/world';
 import { Meters } from './meters';
 import { audio } from '../game/audio';
 import { music } from '../game/music';
-import { iconDataUrl, QUALITY_COLOR } from './icons';
+import { iconDataUrl, QUALITY_COLOR, raidMarkerDataUrl } from './icons';
 import { Keybinds, BIND_ACTIONS, BIND_CATEGORIES, isReservedCode, keyLabel } from '../game/keybinds';
-import { Settings, GameSettings, SETTING_RANGES } from '../game/settings';
+import { Settings, GameSettings, BoolSettingKey, NumericSettingKey, SETTING_RANGES } from '../game/settings';
 import { chatPlayerContextActions } from './player_context_menu';
 import { formatMoney as formatLocalizedMoney, formatNumber, moneyParts, t, type TranslationKey } from './i18n';
 import { tEntity } from './entity_i18n';
+import {
+  clearHotbarSlot, encodeHotbarAction, HOTBAR_ACTION_MIME, HotbarAction, parseHotbarAction, parseHotbarActions,
+  placeAbilityOnSlot, placeItemOnSlot, swapHotbarSlots, syncHotbarActions,
+} from './hotbar';
 
 // hooks main wires after Input exists (the options menu drives input, audio,
 // graphics, and logout, all of which live outside the HUD)
@@ -25,7 +33,7 @@ export interface OptionsHooks {
   logout(): void;
   captureKey(cb: (code: string | null) => void): void;
   settings: Settings;
-  onSettingChange(key: keyof GameSettings, value: number): void;
+  onSettingChange(key: keyof GameSettings, value: GameSettings[keyof GameSettings]): void;
 }
 
 export interface ReportHooks {
@@ -40,6 +48,11 @@ const esc = (value: unknown): string => String(value ?? '')
   .replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
+const castDisplayName = (id: string): string => {
+  if (id === FISHING_CAST_ID) return t('abilityUi.cast.fishing');
+  const ability = ABILITIES[id];
+  return ability ? abilityDisplayName(ability) : id;
+};
 
 const FAMILY_GLYPH: Record<string, string> = {
   beast: '🐾', humanoid: '🗡️', murloc: '🐟', spider: '🕷️', kobold: '⛏️', undead: '💀',
@@ -54,6 +67,16 @@ const RESOURCE_LABEL_KEYS: Record<ResourceType, TranslationKey> = {
   rage: 'abilityUi.resources.rage',
   energy: 'abilityUi.resources.energy',
 };
+const RAID_MARKER_LABEL_KEYS = [
+  'hud.markers.names.star',
+  'hud.markers.names.circle',
+  'hud.markers.names.diamond',
+  'hud.markers.names.triangle',
+  'hud.markers.names.moon',
+  'hud.markers.names.square',
+  'hud.markers.names.cross',
+  'hud.markers.names.skull',
+] as const satisfies readonly TranslationKey[];
 const FORM_LABEL_KEYS: Record<'bear' | 'cat', TranslationKey> = {
   bear: 'abilityUi.forms.bear',
   cat: 'abilityUi.forms.cat',
@@ -79,6 +102,8 @@ const ITEM_KIND_LABEL_KEYS: Record<ItemDef['kind'], TranslationKey> = {
   junk: 'itemUi.kind.junk',
   food: 'itemUi.kind.food',
   drink: 'itemUi.kind.drink',
+  tool: 'itemUi.kind.tool',
+  potion: 'itemUi.kind.potion',
 };
 const ITEM_STAT_LABEL_KEYS: Partial<Record<keyof Stats, TranslationKey>> = {
   armor: 'itemUi.stats.armor',
@@ -142,9 +167,11 @@ const CHAT_TEMPLATE_KEYS = {
 
 export class Hud {
   private static readonly BAR_ABILITY_SLOTS = 11; // bar slots 1..11; slot 0 is the fixed Attack toggle
-  private abilityButtons: { btn: HTMLButtonElement; label: HTMLSpanElement; keybindEl: HTMLSpanElement; cdOverlay: HTMLDivElement; cdText: HTMLDivElement; lastIcon: string }[] = [];
-  private slotMap: (string | null)[] = []; // index = barSlot-1, value = ability id
-  private dragFromSlot: number | null = null;
+  private abilityButtons: { btn: HTMLButtonElement; label: HTMLSpanElement; countEl: HTMLSpanElement; keybindEl: HTMLSpanElement; cdOverlay: HTMLDivElement; cdText: HTMLDivElement; lastIcon: string }[] = [];
+  private hotbarActions: HotbarAction[] = []; // index = barSlot-1
+  private loadedSlotMapFromStorage = false;
+  private knownAbilityIdsAtLastSlotSync: Set<string> | null = null;
+  private dragAction: { action: Exclude<HotbarAction, null>; sourceIndex: number | null } | null = null;
   private optionsHooks: OptionsHooks | null = null;
   private reportHooks: ReportHooks | null = null;
   private optionsView: 'main' | 'keybinds' | 'graphics' | 'audio' = 'main';
@@ -175,6 +202,7 @@ export class Hud {
   private lastPartySig = '';
   private lastArenaSig = '';
   private lastArenaStatusSig = '';
+  private arenaMatchSeen = false; // closes the queue panel once a bout starts
   // World Market (the Merchant's auction house)
   private marketOpen = false;
   private marketTab: 'browse' | 'sell' | 'collect' = 'browse';
@@ -223,6 +251,11 @@ export class Hud {
       const t = tid !== null ? this.sim.entities.get(tid) : null;
       if (t && t.kind === 'player' && t.id !== this.sim.playerId) {
         this.openContextMenu(t.id, t.name, (ev as MouseEvent).clientX, (ev as MouseEvent).clientY);
+      } else if (t && t.kind === 'mob' && !t.dead && t.hostile && t.ownerId === null && this.sim.partyInfo) {
+        // classic WoW: right-click an enemy's unit frame to set a raid marker.
+        // Mirror Sim.setMarker's markable criteria (live wild hostile mob) so the
+        // menu never appears for a pet/non-hostile mob where it would be a no-op.
+        this.openMarkerMenu(t.id, t.name, (ev as MouseEvent).clientX, (ev as MouseEvent).clientY);
       }
     });
     $('#mm-char').addEventListener('click', () => this.toggleChar());
@@ -375,6 +408,9 @@ export class Hud {
     }
     if (item.foodHp) html += `<div class="tt-desc">${esc(t('itemUi.tooltip.useFood', { amount: itemNumber(item.foodHp), seconds: itemNumber(CONSUME_DURATION) }))}</div>`;
     if (item.drinkMana) html += `<div class="tt-desc">${esc(t('itemUi.tooltip.useDrink', { amount: itemNumber(item.drinkMana), seconds: itemNumber(CONSUME_DURATION) }))}</div>`;
+    if (item.use?.type === 'fishing') html += `<div class="tt-desc">${esc(t('itemUi.tooltip.useFishing'))}</div>`;
+    if (item.potionHp) html += `<div class="tt-desc">${esc(t('itemUi.tooltip.useHealingPotion', { amount: itemNumber(item.potionHp) }))}</div>`;
+    if (item.potionMana) html += `<div class="tt-desc">${esc(t('itemUi.tooltip.useManaPotion', { amount: itemNumber(item.potionMana) }))}</div>`;
     if (item.kind === 'quest') html += `<div class="tt-desc">${esc(t('itemUi.tooltip.questItem'))}</div>`;
     if (item.requiredClass) {
       html += `<div class="tt-sub">${esc(t('itemUi.tooltip.classes', { classes: item.requiredClass.map(classDisplayName).join(', ') }))}</div>`;
@@ -479,49 +515,72 @@ export class Hud {
   // Action bar
   // -------------------------------------------------------------------------
 
-  // The hotbar layout is a client-side remap over the learned abilities,
-  // keyed by ability id (known is class-ordered and shifts on level-up, so
-  // indices would not survive). Persisted per class+character.
+  // The hotbar layout is a client-side remap over learned abilities and item
+  // shortcuts. Abilities are keyed by id (known is class-ordered and shifts on
+  // level-up, so indices would not survive). Persisted per class+character.
   private slotMapKey(): string {
     return `woc_hotbar_${this.sim.cfg.playerClass}_${this.sim.player.name}`;
+  }
+
+  private isHotbarItemId(itemId: string): boolean {
+    const item = ITEMS[itemId];
+    return item?.kind === 'food' || item?.kind === 'drink' || item?.kind === 'potion' || item?.use?.type === 'fishing';
   }
 
   private loadSlotMap(): void {
     let arr: unknown = null;
     try { arr = JSON.parse(localStorage.getItem(this.slotMapKey()) ?? 'null'); } catch { /* corrupt */ }
-    const seen = new Set<string>();
-    this.slotMap = Array.from({ length: Hud.BAR_ABILITY_SLOTS }, (_, i) => {
-      const v = Array.isArray(arr) ? arr[i] : null;
-      if (typeof v !== 'string' || !ABILITIES[v] || seen.has(v)) return null;
-      seen.add(v);
-      return v;
-    });
+    this.loadedSlotMapFromStorage = Array.isArray(arr);
+    this.hotbarActions = parseHotbarActions(
+      arr,
+      Hud.BAR_ABILITY_SLOTS,
+      (id) => !!ABILITIES[id],
+      (id) => this.isHotbarItemId(id),
+    );
   }
 
   private saveSlotMap(): void {
-    try { localStorage.setItem(this.slotMapKey(), JSON.stringify(this.slotMap)); } catch { /* storage unavailable */ }
+    try { localStorage.setItem(this.slotMapKey(), JSON.stringify(this.hotbarActions)); } catch { /* storage unavailable */ }
   }
 
-  // Drop unlearned ids; place newly learned abilities in the first empty
-  // slot. With empty storage this reproduces the default class-order layout.
+  // Drop unlearned ability ids; place newly learned abilities in the first
+  // empty slot. Item shortcuts stay assigned even when their count reaches 0.
   private syncSlotMap(): void {
-    const ids = new Set(this.sim.known.map((k) => k.def.id));
-    let dirty = false;
-    for (let i = 0; i < this.slotMap.length; i++) {
-      const id = this.slotMap[i];
-      if (id !== null && !ids.has(id)) { this.slotMap[i] = null; dirty = true; }
+    const knownAbilityIds = this.sim.known.map((k) => k.def.id);
+    const autoPlaceAbilityIds = new Set<string>();
+    if (this.knownAbilityIdsAtLastSlotSync === null) {
+      if (!this.loadedSlotMapFromStorage) {
+        for (const id of knownAbilityIds) autoPlaceAbilityIds.add(id);
+      }
+    } else {
+      for (const id of knownAbilityIds) {
+        if (!this.knownAbilityIdsAtLastSlotSync.has(id)) autoPlaceAbilityIds.add(id);
+      }
     }
-    for (const k of this.sim.known) {
-      if (this.slotMap.includes(k.def.id)) continue;
-      const empty = this.slotMap.indexOf(null);
-      if (empty !== -1) { this.slotMap[empty] = k.def.id; dirty = true; }
-    }
-    if (dirty) this.saveSlotMap();
+    const synced = syncHotbarActions(this.hotbarActions, knownAbilityIds, autoPlaceAbilityIds);
+    this.hotbarActions = synced.actions;
+    if (synced.changed) this.saveSlotMap();
+    this.knownAbilityIdsAtLastSlotSync = new Set(knownAbilityIds);
+  }
+
+  private actionForSlot(barSlot: number): HotbarAction { // barSlot 1..11
+    return this.hotbarActions[barSlot - 1] ?? null;
   }
 
   abilityForSlot(barSlot: number): ResolvedAbility | null { // barSlot 1..11
-    const id = this.slotMap[barSlot - 1];
-    return id ? this.sim.known.find((k) => k.def.id === id) ?? null : null;
+    const action = this.actionForSlot(barSlot);
+    return action?.type === 'ability'
+      ? this.sim.known.find((k) => k.def.id === action.id) ?? null
+      : null;
+  }
+
+  private itemForSlot(barSlot: number): ItemDef | null {
+    const action = this.actionForSlot(barSlot);
+    return action?.type === 'item' ? ITEMS[action.id] ?? null : null;
+  }
+
+  private inventoryCount(itemId: string): number {
+    return this.sim.inventory.reduce((total, slot) => total + (slot.itemId === itemId ? slot.count : 0), 0);
   }
 
   // Shared entry point for hotbar clicks and the 1..0-= keybinds.
@@ -531,10 +590,31 @@ export class Hud {
       else this.sim.startAutoAttack();
       return;
     }
-    const known = this.abilityForSlot(barSlot);
-    // cast by ability id: the server validates against its own known list,
-    // so the client-side slot remap never desyncs slot semantics
-    if (known) this.sim.castAbility(known.def.id);
+    const action = this.actionForSlot(barSlot);
+    if (action?.type === 'ability') {
+      // cast by ability id: the server validates against its own known list,
+      // so the client-side slot remap never desyncs slot semantics
+      if (this.abilityForSlot(barSlot)) this.sim.castAbility(action.id);
+    } else if (action?.type === 'item' && this.isHotbarItemId(action.id)) {
+      if (this.tradeOpen) return;
+      this.sim.useItem(action.id);
+      if ($('#bags').style.display === 'block') this.renderBags();
+    }
+  }
+
+  private writeDraggedAction(dt: DataTransfer | null, action: Exclude<HotbarAction, null>): void {
+    if (!dt) return;
+    dt.setData(HOTBAR_ACTION_MIME, encodeHotbarAction(action));
+    dt.setData('text/plain', action.id);
+  }
+
+  private readDraggedAction(dt: DataTransfer | null): Exclude<HotbarAction, null> | null {
+    if (!dt) return null;
+    const raw = dt.getData(HOTBAR_ACTION_MIME);
+    if (!raw) return null;
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(raw); } catch { return null; }
+    return parseHotbarAction(parsed, (id) => this.sim.known.some((k) => k.def.id === id), (id) => this.isHotbarItemId(id));
   }
 
   private buildActionBar(): void {
@@ -544,6 +624,8 @@ export class Hud {
       btn.className = 'action-btn empty';
       const label = document.createElement('span');
       label.className = 'icon-label';
+      const countEl = document.createElement('span');
+      countEl.className = 'item-count';
       const kb = document.createElement('span');
       kb.className = 'keybind';
       kb.textContent = this.keybinds.primaryLabel(`slot${i}`); // rebindable; refreshKeybindLabels keeps it current
@@ -551,7 +633,7 @@ export class Hud {
       cdOverlay.className = 'cd-overlay';
       const cdText = document.createElement('div');
       cdText.className = 'cdtext';
-      btn.append(label, kb, cdOverlay, cdText);
+      btn.append(label, countEl, kb, cdOverlay, cdText);
       const slot = i;
       // slot 0 is Attack for every class (auto-attack toggle — players
       // without right-click need a way in); the kit fills slots 1+
@@ -564,45 +646,85 @@ export class Hud {
           return `<div class="tt-title">${esc(t('abilityUi.actionBar.attackName'))}</div><div class="tt-sub">${esc(t('abilityUi.actionBar.attackTooltip'))}</div>`;
         }
         const known = this.abilityForSlot(slot);
-        return known ? this.abilityTooltip(known) : `<div class="tt-sub">${esc(t('abilityUi.actionBar.emptySlot'))}</div>`;
+        const clearHint = `<div class="tt-sub">${esc(t('abilityUi.actionBar.clearHint'))}</div>`;
+        if (known) return this.abilityTooltip(known) + clearHint;
+        const item = this.itemForSlot(slot);
+        if (item) {
+          const count = this.inventoryCount(item.id);
+          return this.itemTooltip(item)
+            + `<div class="tt-sub">${esc(count > 0
+              ? t('abilityUi.actionBar.itemInBags', { count: formatNumber(count, { maximumFractionDigits: 0 }) })
+              : t('abilityUi.actionBar.itemNoneInBags'))}</div>`
+            + clearHint;
+        }
+        return `<div class="tt-sub">${esc(t('abilityUi.actionBar.emptySlot'))}<br>${esc(t('abilityUi.actionBar.clearHint'))}</div>`;
       });
       if (slot >= 1) {
-        // drag an ability onto another slot to swap the two keybinds;
+        // drag an action onto another slot to place or swap it;
         // slot 0 (Attack) stays fixed
         btn.draggable = true;
+        const clearSlot = () => {
+          this.hotbarActions = clearHotbarSlot(this.hotbarActions, slot - 1);
+          this.saveSlotMap();
+          btn.classList.add('empty');
+          btn.classList.remove('drop-target', 'oor', 'queued', 'unusable');
+          this.hideTooltip();
+        };
+        btn.addEventListener('contextmenu', (e) => {
+          if (!e.shiftKey) return;
+          e.preventDefault();
+          clearSlot();
+        });
+        btn.addEventListener('keydown', (e) => {
+          if (!e.shiftKey || (e.key !== 'Delete' && e.key !== 'Backspace')) return;
+          e.preventDefault();
+          e.stopPropagation();
+          clearSlot();
+        });
         btn.addEventListener('dragstart', (e) => {
-          const known = this.abilityForSlot(slot);
-          if (!known) { e.preventDefault(); return; }
-          this.dragFromSlot = slot;
-          e.dataTransfer!.setData('text/plain', known.def.id);
+          const action = this.actionForSlot(slot);
+          if (!action) { e.preventDefault(); return; }
+          this.dragAction = { action, sourceIndex: slot - 1 };
+          this.writeDraggedAction(e.dataTransfer, action);
           e.dataTransfer!.effectAllowed = 'move';
           this.hideTooltip();
         });
         btn.addEventListener('dragover', (e) => {
-          if (this.dragFromSlot === null || this.dragFromSlot === slot) return;
+          const dragged = this.dragAction?.action ?? this.readDraggedAction(e.dataTransfer);
+          if (!dragged) return;
+          if (this.dragAction?.sourceIndex === slot - 1) return;
           e.preventDefault(); // required to permit the drop
-          e.dataTransfer!.dropEffect = 'move';
+          e.dataTransfer!.dropEffect = this.dragAction?.sourceIndex === null && dragged.type === 'item' ? 'copy' : 'move';
           btn.classList.add('drop-target');
         });
         btn.addEventListener('dragleave', () => btn.classList.remove('drop-target'));
         btn.addEventListener('drop', (e) => {
           e.preventDefault();
           btn.classList.remove('drop-target');
-          const from = this.dragFromSlot;
-          this.dragFromSlot = null;
-          if (from === null || from === slot) return;
-          const a = from - 1, b = slot - 1;
-          [this.slotMap[a], this.slotMap[b]] = [this.slotMap[b], this.slotMap[a]]; // swap; empty target = move
+          const dragged = this.dragAction ?? { action: this.readDraggedAction(e.dataTransfer), sourceIndex: null };
+          this.dragAction = null;
+          const action = dragged.action;
+          if (!action) return;
+          if (dragged.sourceIndex !== null) this.hotbarActions = swapHotbarSlots(this.hotbarActions, dragged.sourceIndex, slot - 1);
+          else if (action.type === 'ability' && this.sim.known.some((k) => k.def.id === action.id)) {
+            this.hotbarActions = placeAbilityOnSlot(this.hotbarActions, action.id, slot - 1);
+          } else if (action.type === 'item' && this.isHotbarItemId(action.id)) {
+            this.hotbarActions = placeItemOnSlot(this.hotbarActions, action.id, slot - 1);
+          }
           this.saveSlotMap();
         });
         btn.addEventListener('dragend', () => {
-          this.dragFromSlot = null;
-          bar.querySelectorAll('.drop-target').forEach((el) => el.classList.remove('drop-target'));
+          this.dragAction = null;
+          this.clearActionDropTargets();
         });
       }
       bar.appendChild(btn);
-      this.abilityButtons.push({ btn, label, keybindEl: kb, cdOverlay, cdText, lastIcon: '' });
+      this.abilityButtons.push({ btn, label, countEl, keybindEl: kb, cdOverlay, cdText, lastIcon: '' });
     }
+  }
+
+  private clearActionDropTargets(): void {
+    document.querySelectorAll('#actionbar .drop-target').forEach((el) => el.classList.remove('drop-target'));
   }
 
   // Repaint the keycap on every action button from the current bindings.
@@ -688,7 +810,7 @@ export class Hud {
         ? p.castRemaining / Math.max(0.01, p.castTotal)
         : 1 - p.castRemaining / Math.max(0.01, p.castTotal);
       (cb.querySelector('.fill') as HTMLElement).style.width = `${(frac * 100).toFixed(1)}%`;
-      (cb.querySelector('.label') as HTMLElement).textContent = abilityDisplayName(ABILITIES[p.castingAbility]);
+      (cb.querySelector('.label') as HTMLElement).textContent = castDisplayName(p.castingAbility);
     } else if (p.eating || p.drinking) {
       cb.style.display = 'block';
       cb.classList.add('channel');
@@ -708,7 +830,7 @@ export class Hud {
     // action bar
     const tgtDist = target && !target.dead ? dist2d(p.pos, target.pos) : null;
     const actionbar = $('#actionbar');
-    actionbar.classList.toggle('many-spells', this.slotMap.filter((id) => id !== null).length > 10);
+    actionbar.classList.toggle('many-spells', this.hotbarActions.filter((action) => action !== null).length > 10);
     for (let i = 0; i < this.abilityButtons.length; i++) {
       const ab = this.abilityButtons[i];
       const slotLabel = formatAbilityNumber(i + 1);
@@ -723,42 +845,67 @@ export class Hud {
           ab.lastIcon = '__attack';
           ab.label.style.backgroundImage = `url(${iconDataUrl('ability', 'attack')})`;
         }
+        ab.countEl.textContent = '';
         ab.cdOverlay.style.height = '0%';
         ab.cdText.textContent = '';
         ab.btn.classList.toggle('queued', !!p.autoAttack);
         ab.btn.classList.toggle('oor', tgtDist !== null && tgtDist > MELEE_RANGE);
         continue;
       }
+      const action = this.actionForSlot(i);
       const known = this.abilityForSlot(i);
-      if (!known) {
+      const item = this.itemForSlot(i);
+      if (!known && !item) {
         ab.btn.classList.add('empty');
         ab.btn.setAttribute('aria-label', t('abilityUi.actionBar.emptySlotAria', { slot: slotLabel }));
+        ab.btn.classList.remove('unusable', 'oor', 'queued');
         if (ab.lastIcon !== '') {
           ab.lastIcon = '';
           ab.label.style.backgroundImage = '';
         }
+        ab.countEl.textContent = '';
         ab.cdOverlay.style.height = '0%';
         ab.cdText.textContent = '';
         continue;
       }
-      const a = known.def;
       ab.btn.classList.remove('empty');
+      if (item && action?.type === 'item') {
+        ab.btn.setAttribute('aria-label', t('abilityUi.actionBar.slotAria', {
+          slot: slotLabel,
+          ability: itemDisplayName(item),
+        }));
+        const iconKey = `item:${item.id}`;
+        if (ab.lastIcon !== iconKey) {
+          ab.lastIcon = iconKey;
+          ab.label.style.backgroundImage = `url(${iconDataUrl('item', item.id)})`;
+        }
+        const count = this.inventoryCount(item.id);
+        ab.countEl.textContent = String(count);
+        ab.cdOverlay.style.height = '0%';
+        ab.cdText.textContent = '';
+        ab.btn.classList.toggle('unusable', count <= 0 || p.dead);
+        ab.btn.classList.remove('oor', 'queued');
+        continue;
+      }
+      const a = known!.def;
       ab.btn.setAttribute('aria-label', t('abilityUi.actionBar.slotAria', {
         slot: slotLabel,
         ability: abilityDisplayName(a),
       }));
       // set the painted icon once per slot change, not every frame
-      if (ab.lastIcon !== a.id) {
-        ab.lastIcon = a.id;
+      const iconKey = `ability:${a.id}`;
+      if (ab.lastIcon !== iconKey) {
+        ab.lastIcon = iconKey;
         ab.label.style.backgroundImage = `url(${iconDataUrl('ability', a.id)})`;
       }
+      ab.countEl.textContent = '';
       const cd = p.cooldowns.get(a.id) ?? 0;
       const gcdActive = !a.offGcd && p.gcdRemaining > 0;
       const shown = Math.max(cd, gcdActive ? p.gcdRemaining : 0);
       const denom = cd > 0 ? a.cooldown : GCD;
       ab.cdOverlay.style.height = shown > 0 ? `${Math.min(100, (shown / Math.max(0.01, denom)) * 100)}%` : '0%';
       ab.cdText.textContent = cd > 1 ? Math.ceil(cd).toString() : '';
-      ab.btn.classList.toggle('unusable', p.resource < known.cost);
+      ab.btn.classList.toggle('unusable', p.resource < known!.cost);
       const oor = a.requiresTarget && tgtDist !== null && tgtDist > (a.range > 0 ? a.range : MELEE_RANGE);
       ab.btn.classList.toggle('oor', !!oor);
       ab.btn.classList.toggle('queued', p.queuedOnSwing === a.id);
@@ -812,6 +959,12 @@ export class Hud {
     this.updatePartyFrames();
     this.updateTradeWindow();
     this.updateArenaStatus();
+    // when a bout begins, get the queue panel out of the way for the fight
+    const inArenaMatch = !!this.sim.arenaInfo?.match;
+    if (inArenaMatch && !this.arenaMatchSeen && $('#arena-window').style.display === 'block') {
+      $('#arena-window').style.display = 'none';
+    }
+    this.arenaMatchSeen = inArenaMatch;
     this.updateMinimap();
     if ($('#map-window').style.display === 'block') this.updateMapWindow();
     if ($('#social-window').classList.contains('open')) {
@@ -1034,7 +1187,7 @@ export class Hud {
   }
 
   // -------------------------------------------------------------------------
-  // The Ashen Coliseum — 1v1 arena panel + in-match banner
+  // The Ashen Coliseum - 1v1 arena panel + in-match banner
   // -------------------------------------------------------------------------
 
   toggleArena(): void {
@@ -1065,8 +1218,8 @@ export class Hud {
     const a = this.sim.arenaInfo;
     if (!a) {
       // offline / not yet synced: arena is an online ranked feature
-      el.innerHTML = `<div class="panel-title"><span>The Ashen Coliseum</span><span class="x-btn" data-close>✕</span></div>`
-        + `<div class="arena-note">The Ashen Coliseum is a ranked 1v1 arena for the live world. Play online to enter the queue and climb the ladder.</div>`;
+      el.innerHTML = `<div class="panel-title"><span>${esc(t('hud.arena.title'))}</span><button type="button" class="x-btn" data-close aria-label="${esc(t('hud.arena.close'))}">✕</button></div>`
+        + `<div class="arena-note">${esc(t('hud.arena.offlineNote'))}</div>`;
       el.querySelector('[data-close]')?.addEventListener('click', () => { el.style.display = 'none'; });
       return;
     }
@@ -1076,21 +1229,21 @@ export class Hud {
       const me = r.pid === myPid;
       const classId = r.cls as PlayerClass;
       const cls = CLASSES[classId] ? classDisplayName(classId) : r.cls;
-      return `<div class="ladder-row${me ? ' me' : ''}"><span class="rank">${i + 1}</span>`
-        + `<span class="lr-name" title="${r.name} — ${cls}">${r.name}</span>`
-        + `<span class="lr-rating">${r.rating}</span>`
-        + `<span class="lr-wl">${r.wins}-${r.losses}</span></div>`;
-    }).join('') || `<div class="ladder-empty">No challengers ranked yet — be the first.</div>`;
+      return `<div class="ladder-row${me ? ' me' : ''}"><span class="rank">${esc(formatNumber(i + 1, { maximumFractionDigits: 0 }))}</span>`
+        + `<span class="lr-name" title="${esc(t('hud.arena.playerClassTitle', { name: r.name, className: cls }))}">${esc(r.name)}</span>`
+        + `<span class="lr-rating">${esc(formatNumber(r.rating, { maximumFractionDigits: 0 }))}</span>`
+        + `<span class="lr-wl">${esc(formatNumber(r.wins, { maximumFractionDigits: 0 }))}-${esc(formatNumber(r.losses, { maximumFractionDigits: 0 }))}</span></div>`;
+    }).join('') || `<div class="ladder-empty">${esc(t('hud.arena.noChallengers'))}</div>`;
 
     let action: string;
     if (inMatch) {
-      action = `<div class="arena-queue-status">⚔ Match in progress vs ${a.match!.oppName}.</div>`;
+      action = `<div class="arena-queue-status">${esc(t('hud.arena.matchInProgress', { name: a.match!.oppName }))}</div>`;
     } else if (a.queued) {
-      action = `<button class="btn leave" data-act="leave">Leave Queue</button>`
-        + `<div class="arena-queue-status">Searching for an opponent… (${a.queueSize} in queue)</div>`;
+      action = `<button class="btn leave" data-act="leave">${esc(t('hud.arena.leaveQueue'))}</button>`
+        + `<div class="arena-queue-status">${esc(t('hud.arena.searching', { count: formatNumber(a.queueSize, { maximumFractionDigits: 0 }) }))}</div>`;
     } else {
-      action = `<button class="btn" data-act="queue">Enter the Queue</button>`
-        + `<div class="arena-note">You will be matched with the nearest-rated challenger online, then teleported to the sands. Win to climb; first to yield (1 health) loses. You return exactly where you queued.</div>`;
+      action = `<button class="btn" data-act="queue">${esc(t('hud.arena.enterQueue'))}</button>`
+        + `<div class="arena-note">${esc(t('hud.arena.queueNote'))}</div>`;
     }
 
     this.fetchArenaLeaderboard();
@@ -1098,24 +1251,31 @@ export class Hud {
       const me = r.name === this.sim.player.name;
       const classId = r.class as PlayerClass;
       const cls = CLASSES[classId] ? classDisplayName(classId) : r.class;
-      return `<div class="ladder-row${me ? ' me' : ''}"><span class="rank">${i + 1}</span>`
-        + `<span class="lr-name" title="${r.name} — Lv ${r.level} ${cls}">${r.name}</span>`
-        + `<span class="lr-rating">${r.rating}</span>`
-        + `<span class="lr-wl">${r.wins}-${r.losses}</span></div>`;
+      return `<div class="ladder-row${me ? ' me' : ''}"><span class="rank">${esc(formatNumber(i + 1, { maximumFractionDigits: 0 }))}</span>`
+        + `<span class="lr-name" title="${esc(t('hud.arena.playerLevelClassTitle', {
+          name: r.name,
+          level: formatNumber(r.level, { maximumFractionDigits: 0 }),
+          className: cls,
+        }))}">${esc(r.name)}</span>`
+        + `<span class="lr-rating">${esc(formatNumber(r.rating, { maximumFractionDigits: 0 }))}</span>`
+        + `<span class="lr-wl">${esc(formatNumber(r.wins, { maximumFractionDigits: 0 }))}-${esc(formatNumber(r.losses, { maximumFractionDigits: 0 }))}</span></div>`;
     }).join('');
     const allTimeSection = this.arenaAllTime && this.arenaAllTime.length > 0
-      ? `<div class="arena-sub">Ladder — All-Time</div>${allTime}`
+      ? `<div class="arena-sub">${esc(t('hud.arena.ladderAllTime'))}</div>${allTime}`
       : '';
 
     const sig = JSON.stringify([a.rating, a.wins, a.losses, a.queued, a.queueSize, inMatch, a.ladder, this.arenaAllTime]);
     if (sig === this.lastArenaSig) return; // nothing changed; skip the DOM churn (and re-bind)
     this.lastArenaSig = sig;
 
-    el.innerHTML = `<div class="panel-title"><span>The Ashen Coliseum <span style="color:#998d6a;font-size:11px">1v1 Ranked</span></span><span class="x-btn" data-close>✕</span></div>`
-      + `<div class="arena-rank"><span class="rating">${a.rating}</span>`
-      + `<span class="wl">Rating &middot; <b>${a.wins}</b> wins / <i>${a.losses}</i> losses</span></div>`
+    el.innerHTML = `<div class="panel-title"><span>${esc(t('hud.arena.title'))} <span style="color:#998d6a;font-size:11px">${esc(t('hud.arena.subtitle'))}</span></span><button type="button" class="x-btn" data-close aria-label="${esc(t('hud.arena.close'))}">✕</button></div>`
+      + `<div class="arena-rank"><span class="rating">${esc(formatNumber(a.rating, { maximumFractionDigits: 0 }))}</span>`
+      + `<span class="wl">${esc(t('hud.arena.ratingSummary', {
+        wins: formatNumber(a.wins, { maximumFractionDigits: 0 }),
+        losses: formatNumber(a.losses, { maximumFractionDigits: 0 }),
+      }))}</span></div>`
       + action
-      + `<div class="arena-sub">Ladder — Online</div>`
+      + `<div class="arena-sub">${esc(t('hud.arena.ladderOnline'))}</div>`
       + ladder
       + allTimeSection;
 
@@ -1134,13 +1294,18 @@ export class Hud {
       this.lastArenaStatusSig = '';
       return;
     }
-    const label = m.state === 'countdown' ? 'Steel yourself…' : 'Fight to the yield!';
-    const sig = `${m.oppName}|${m.state}`;
+    const label = m.state === 'countdown' ? t('hud.arena.statusCountdown')
+      : m.state === 'over' ? t('hud.arena.statusReturning', { seconds: formatNumber(m.returnIn ?? 0, { maximumFractionDigits: 0 }) })
+      : t('hud.arena.statusFight');
+    const sig = `${m.oppName}|${m.state}|${m.state === 'over' ? (m.returnIn ?? 0) : ''}`;
     if (sig !== this.lastArenaStatusSig) {
       this.lastArenaStatusSig = sig;
       const cls = CLASSES[m.oppClass] ? classDisplayName(m.oppClass) : m.oppClass;
-      el.innerHTML = `<div class="as-vs">⚔ VS <span class="opp">${m.oppName}</span> <span style="color:#b6ad8c;font-size:11px">Lv ${m.oppLevel} ${cls}</span></div>`
-        + `<div class="as-timer">${label}</div>`;
+      el.innerHTML = `<div class="as-vs">${esc(t('hud.arena.vsLine', { name: m.oppName }))} <span style="color:#b6ad8c;font-size:11px">${esc(t('hud.arena.levelClass', {
+        level: formatNumber(m.oppLevel, { maximumFractionDigits: 0 }),
+        className: cls,
+      }))}</span></div>`
+        + `<div class="as-timer">${esc(label)}</div>`;
       el.style.display = 'block';
     }
   }
@@ -1321,7 +1486,7 @@ export class Hud {
         case 'comboPoint': break;
         case 'loot': {
           this.log(this.localizeLootText(ev.text), '#7fdc4f');
-          if (ev.text.includes('loot') || ev.text.includes('Sold')) audio.coin();
+          if (ev.text.includes('loot') || ev.text.includes('Sold') || ev.text.includes('Bought back')) audio.coin();
           else audio.lootItem();
           if ($('#bags').style.display === 'block') this.renderBags();
           break;
@@ -1726,6 +1891,11 @@ export class Hud {
       money: this.localizeSimMoney(match[3]),
       proceeds: this.localizeSimMoney(match[4]),
     });
+    match = /^Bought back (.+) for (.+)\.$/.exec(text);
+    if (match) return t('itemUi.logs.boughtBackItem', {
+      item: itemDisplayNameFromSource(match[1]),
+      money: this.localizeSimMoney(match[2]),
+    });
     match = /^Bought (.+?)( x\d+)? for (.+)\.$/.exec(text);
     if (match) return t('itemUi.logs.boughtItem', {
       item: itemStackDisplayName(match[1], match[2]),
@@ -1876,7 +2046,7 @@ export class Hud {
     }
     html += `<div class="qd-sub">${esc(t('questUi.detail.rewards'))}</div>`;
     html += `<div class="qd-obj">${esc(t('questUi.detail.xpReward', { xp: this.questNumber(quest.xpReward) }))} &nbsp; ${this.moneyHtml(quest.copperReward)}</div>`;
-    const rewardItem = quest.itemRewards[this.sim.cfg.playerClass];
+    const rewardItem = questRewardItem(quest, this.sim.cfg.playerClass);
     if (rewardItem) {
       const item = ITEMS[rewardItem];
       html += `<div class="qd-reward-row" data-reward><span class="qd-reward-label">${esc(t('questUi.detail.itemReward'))}</span>${this.itemIcon(item)}<span class="qd-reward-name" style="color:${QUALITY_COLOR[item.quality ?? 'common'] ?? '#fff'}">${esc(itemDisplayName(item))}</span></div>`;
@@ -1937,13 +2107,15 @@ export class Hud {
   openLoot(mobId: number, screenX: number, screenY: number): void {
     const mob = this.sim.entities.get(mobId);
     if (!mob?.loot) return;
+    const visibleItems = mob.loot.items.filter((s) => !s.personalFor || s.personalFor.includes(this.sim.playerId));
+    if (mob.loot.copper <= 0 && visibleItems.length === 0) return;
     this.openLootMobId = mobId;
     const el = $('#loot-window');
     let html = `<div class="panel-title"><span>${esc(entityDisplayName(mob))}</span><span class="x-btn" data-close>✕</span></div>`;
     if (mob.loot.copper > 0) {
       html += `<div class="loot-item"><img class="item-icon q-common" src="${iconDataUrl('item', 'coin_gold')}" alt="" draggable="false"><span>${this.moneyHtml(mob.loot.copper)}</span></div>`;
     }
-    for (const s of mob.loot.items) {
+    for (const s of visibleItems) {
       const item = ITEMS[s.itemId];
       html += `<div class="loot-item" data-item="${s.itemId}">${this.itemIcon(item)}<span style="font-size:12px">${esc(itemDisplayName(item))}${s.count > 1 ? ' x' + s.count : ''}</span></div>`;
     }
@@ -2003,8 +2175,38 @@ export class Hud {
       row.innerHTML = `${this.itemIcon(item)}<span class="vi-name">${esc(itemName)}</span><span class="vi-price">${this.moneyHtml(item.buyValue)}</span>`;
       row.addEventListener('click', () => {
         this.sim.buyItem(npc.id, itemId);
+        if ($('#bags').style.display === 'block') this.renderBags();
+        this.renderVendor();
       });
       this.attachTooltip(row, () => this.itemTooltip(item) + `<div class="tt-sub">${esc(t('itemUi.tooltip.clickBuy'))}</div>`);
+      el.appendChild(row);
+    }
+    const buybackTitle = document.createElement('div');
+    buybackTitle.className = 'vendor-section-title';
+    buybackTitle.textContent = t('itemUi.vendor.buybackTitle');
+    el.appendChild(buybackTitle);
+    const buyback = this.sim.vendorBuyback.filter((s) => ITEMS[s.itemId] && s.count > 0);
+    if (buyback.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'vendor-empty';
+      empty.textContent = t('itemUi.vendor.buybackEmpty');
+      el.appendChild(empty);
+    }
+    for (const s of buyback) {
+      const item = ITEMS[s.itemId]!;
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'vendor-item';
+      const price = formatLocalizedMoney(item.sellValue);
+      const itemName = itemDisplayName(item);
+      row.setAttribute('aria-label', t('itemUi.vendor.buybackAria', { item: itemName, price }));
+      row.innerHTML = `${this.itemIcon(item)}<span class="vi-name">${esc(itemName)}${s.count > 1 ? ` x${s.count}` : ''}</span><span class="vi-price">${this.moneyHtml(item.sellValue)}</span>`;
+      row.addEventListener('click', () => {
+        this.sim.buyBackItem(s.itemId);
+        if ($('#bags').style.display === 'block') this.renderBags();
+        this.renderVendor();
+      });
+      this.attachTooltip(row, () => this.itemTooltip(item) + `<div class="tt-sub">${esc(t('itemUi.tooltip.clickBuyback'))}</div>`);
       el.appendChild(row);
     }
     const hint = document.createElement('div');
@@ -2269,6 +2471,8 @@ export class Hud {
   // carry inventory separately from the event frames that normally redraw).
   onInventoryChanged(): void {
     if ($('#bags').style.display === 'block') this.renderBags();
+    if (this.openVendorNpcId !== null) this.renderVendor();
+    if ($('#char-window').style.display === 'block') this.renderChar();
   }
 
   renderBags(): void {
@@ -2293,7 +2497,7 @@ export class Hud {
         count: formatNumber(s.count, { maximumFractionDigits: 0 }),
       }));
       row.innerHTML = `${this.itemIcon(item)}<span style="color:${qColor}">${esc(itemName)}</span><span class="bi-count">${s.count > 1 ? esc(t('itemUi.bags.stackCount', { count: formatNumber(s.count, { maximumFractionDigits: 0 }) })) : ''}</span>`;
-      row.addEventListener('click', () => {
+      row.addEventListener('click', (ev) => {
         if (this.tradeOpen) {
           this.addItemToTrade(s.itemId);
         } else if (this.marketOpen && this.marketTab === 'sell') {
@@ -2301,12 +2505,31 @@ export class Hud {
           this.marketSellItem = s.itemId;
           this.renderMarket();
         } else if (this.vendorOpen) {
-          this.sim.sellItem(s.itemId);
+          this.sellBagItem(s, ev);
         } else {
           this.sim.useItem(s.itemId);
           this.renderBags();
         }
       });
+      row.addEventListener('contextmenu', (ev) => {
+        if (!this.vendorOpen || (!ev.ctrlKey && !ev.metaKey)) return;
+        ev.preventDefault();
+        this.sellBagItem(s, ev);
+      });
+      if (!this.tradeOpen && !this.vendorOpen && this.isHotbarItemId(s.itemId)) {
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => {
+          const action = { type: 'item' as const, id: s.itemId };
+          this.dragAction = { action, sourceIndex: null };
+          this.writeDraggedAction(e.dataTransfer, action);
+          e.dataTransfer!.effectAllowed = 'copy';
+          this.hideTooltip();
+        });
+        row.addEventListener('dragend', () => {
+          this.dragAction = null;
+          this.clearActionDropTargets();
+        });
+      }
       this.attachTooltip(row, () => {
         let extra = '';
         if (this.tradeOpen) extra = `<div class="tt-sub">${esc(t('itemUi.tooltip.clickTradeOffer'))}</div>`;
@@ -2314,6 +2537,8 @@ export class Hud {
         else if (this.vendorOpen) extra = `<div class="tt-sub">${esc(t('itemUi.tooltip.clickSell'))}</div>`;
         else if (item.kind === 'weapon' || item.kind === 'armor') extra = `<div class="tt-sub">${esc(t('itemUi.tooltip.clickEquip'))}</div>`;
         else if (item.kind === 'food' || item.kind === 'drink') extra = `<div class="tt-sub">${esc(t('itemUi.tooltip.clickConsume'))}</div>`;
+        else if (item.kind === 'potion') extra = `<div class="tt-sub">${esc(t('itemUi.tooltip.clickUseInstant'))}</div>`;
+        else if (item.use) extra = `<div class="tt-sub">${esc(t('itemUi.tooltip.clickUse'))}</div>`;
         return this.itemTooltip(item) + extra;
       });
       grid.appendChild(row);
@@ -2324,6 +2549,56 @@ export class Hud {
     money.innerHTML = this.moneyHtml(sim.copper);
     el.appendChild(money);
     el.querySelector('[data-close]')?.addEventListener('click', () => { el.style.display = 'none'; this.hideTooltip(); });
+  }
+
+  private sellBagItem(slot: InvSlot, ev: MouseEvent): void {
+    const count = Math.max(1, Math.floor(slot.count));
+    if (ev.ctrlKey || ev.metaKey) {
+      this.sim.sellItem(slot.itemId, count);
+    } else if (ev.shiftKey && count > 1) {
+      this.showSellQuantityPrompt(slot.itemId, count);
+    } else {
+      this.sim.sellItem(slot.itemId);
+    }
+  }
+
+  private showSellQuantityPrompt(itemId: string, maxCount: number): void {
+    document.querySelectorAll('.sell-quantity-prompt').forEach((el) => el.remove());
+    const item = ITEMS[itemId];
+    const stack = $('#prompt-stack');
+    const prompt = document.createElement('div');
+    prompt.className = 'prompt panel sell-quantity-prompt';
+    const itemName = item ? itemDisplayName(item) : itemId;
+    prompt.innerHTML = `<div class="prompt-text">${esc(t('itemUi.vendor.sellQuantityTitle', { item: itemName }))}</div>`;
+    const input = document.createElement('input');
+    input.className = 'prompt-number';
+    input.type = 'number';
+    input.setAttribute('aria-label', t('itemUi.vendor.sellQuantityInput'));
+    input.min = '1';
+    input.max = String(maxCount);
+    input.step = '1';
+    input.value = '1';
+    const confirm = document.createElement('button');
+    confirm.className = 'btn';
+    confirm.textContent = t('itemUi.vendor.sellQuantityConfirm');
+    const cancel = document.createElement('button');
+    cancel.className = 'btn';
+    cancel.textContent = t('itemUi.vendor.sellQuantityCancel');
+    const close = () => prompt.remove();
+    const submit = () => {
+      const count = Math.max(1, Math.min(maxCount, Math.floor(Number(input.value) || 0)));
+      this.sim.sellItem(itemId, count);
+      close();
+    };
+    confirm.addEventListener('click', submit);
+    cancel.addEventListener('click', close);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+      else if (e.key === 'Escape') close();
+    });
+    prompt.append(input, confirm, cancel);
+    stack.appendChild(prompt);
+    window.setTimeout(() => { input.focus(); input.select(); }, 0);
   }
 
   // -------------------------------------------------------------------------
@@ -2416,8 +2691,23 @@ export class Hud {
       row.innerHTML = `<div class="spell-icon" style="background-image:url(${iconDataUrl('ability', abilityId)})"></div>
         <div class="spell-text"><div class="spell-name">${esc(name)}${known && known.rank > 1 ? ` <span class="spell-rank">${esc(t('abilityUi.tooltip.rank', { rank: formatAbilityNumber(known.rank) }))}</span>` : ''}</div>
         <div class="spell-sub">${locked ? esc(t('abilityUi.spellbook.trainableAtLevel', { level: learnLevel })) : esc(summary)}</div></div>`;
-      if (known) this.attachTooltip(row, () => this.abilityTooltip(known));
-      else this.attachTooltip(row, () => `<div class="tt-title">${esc(name)}</div><div class="tt-sub">${esc(t('abilityUi.spellbook.learnAtLevel', { level: learnLevel }))}</div>`);
+      if (known) {
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => {
+          const action = { type: 'ability' as const, id: known.def.id };
+          this.dragAction = { action, sourceIndex: null };
+          this.writeDraggedAction(e.dataTransfer, action);
+          e.dataTransfer!.effectAllowed = 'move';
+          this.hideTooltip();
+        });
+        row.addEventListener('dragend', () => {
+          this.dragAction = null;
+          this.clearActionDropTargets();
+        });
+        this.attachTooltip(row, () => this.abilityTooltip(known));
+      } else {
+        this.attachTooltip(row, () => `<div class="tt-title">${esc(name)}</div><div class="tt-sub">${esc(t('abilityUi.spellbook.learnAtLevel', { level: learnLevel }))}</div>`);
+      }
       list.appendChild(row);
       rendered++;
     }
@@ -2619,6 +2909,44 @@ export class Hud {
         else this.toggleChatIgnore(name);
       } else if (act === 'report') this.openReportWindow({ pid, name });
       else if (act === 'kick') this.sim.partyKick(pid);
+    });
+  }
+
+  // Raid/target marker picker for an enemy, opened from its target unit frame.
+  // Party-only (markers are a coordination feature); shows the 8 symbols with a
+  // check on the one currently on this mob, plus localized clear and cancel actions.
+  openMarkerMenu(entityId: number, name: string, x: number, y: number): void {
+    if (!this.sim.partyInfo) return;
+    const el = $('#ctx-menu');
+    const current = this.sim.markerFor(entityId);
+    let html = `<div class="ctx-title">${esc(name)}</div>`;
+    for (let i = 0; i < RAID_MARKER_LABEL_KEYS.length; i++) {
+      const markerName = raidMarkerDisplayName(i);
+      const aria = current === i
+        ? t('hud.markers.markerSelectedAria', { marker: markerName })
+        : t('hud.markers.markerAria', { marker: markerName });
+      const check = current === i ? ' ✓' : '';
+      html += `<div class="ctx-item" role="button" tabindex="0" data-act="m${i}" aria-label="${esc(aria)}"><span class="ctx-mark" style="background-image:url(${raidMarkerDataUrl(i)})"></span>${esc(markerName)}${check}</div>`;
+    }
+    html += `<div class="ctx-item" role="button" tabindex="0" data-act="clear">${esc(t('hud.markers.clear'))}</div>`;
+    html += `<div class="ctx-item" role="button" tabindex="0" data-act="close">${esc(t('hud.markers.cancel'))}</div>`;
+    el.innerHTML = html;
+    el.style.left = `${Math.min(window.innerWidth - 170, x)}px`;
+    el.style.top = `${Math.min(window.innerHeight - 340, y)}px`;
+    el.style.display = 'block';
+    el.querySelectorAll('.ctx-item').forEach((item) => {
+      const activate = () => {
+        const act = (item as HTMLElement).dataset.act;
+        el.style.display = 'none';
+        if (act === 'clear') this.sim.clearMarker(entityId);
+        else if (act && act.startsWith('m')) this.sim.setMarker(entityId, Number(act.slice(1)));
+      };
+      item.addEventListener('click', activate);
+      item.addEventListener('keydown', (e) => {
+        if (!(e instanceof KeyboardEvent) || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        activate();
+      });
     });
   }
 
@@ -2859,14 +3187,14 @@ export class Hud {
     return friends.map((f) => {
       const dot = f.online ? (f.status ?? 'online') : 'off';
       const meta = f.online
-        ? `<span class="zone">${esc(f.zone ?? '')}</span><br>${statusLabel(f.status)}`
-        : 'Offline';
+        ? `<span class="zone">${esc(f.zone ?? '')}</span><br>${esc(statusLabel(f.status))}`
+        : t('hud.social.status.offline');
       const name = f.online
         ? `<span class="soc-name soc-link" data-whisper="${esc(f.name)}" title="Whisper ${esc(f.name)}">${esc(f.name)}</span>`
         : `<span class="soc-name">${esc(f.name)}</span>`;
       const whisper = f.online ? `<span class="soc-x" data-whisper="${esc(f.name)}" title="Whisper ${esc(f.name)}">✉</span>` : '';
       return `<div class="soc-row">`
-        + `<span class="soc-dot ${dot === 'off' ? '' : dot}"></span>`
+        + `<span class="soc-dot ${dot === 'off' ? '' : dot}" title="${esc(dotTitle(f.online, f.status, f.zone))}"></span>`
         + `<span>${name}<br><span class="soc-meta">Lvl ${f.level} ${cap(f.cls)}</span></span>`
         + `<span class="soc-meta">${meta}</span>`
         + `<span class="soc-actions">${whisper}<span class="soc-x" data-act="unfriend" data-name="${esc(f.name)}" title="Remove ${esc(f.name)} from friends">✕</span></span>`
@@ -2887,10 +3215,14 @@ export class Hud {
     const guild = this.sim.socialInfo?.guild ?? null;
     if (!guild) return `<div class="soc-empty">You are not in a guild. Found one below, or get invited by an existing guild.</div>`;
     const me = guild.rank;
-    const head = `<div class="soc-guild-head">&lt;${esc(guild.name)}&gt; <span class="gm">— you are ${rankLabel(me)} &middot; ${guild.members.length} member${guild.members.length === 1 ? '' : 's'}</span></div>`;
+    const guildHeadKey = guild.members.length === 1 ? 'hud.social.guildHeadOne' : 'hud.social.guildHeadMany';
+    const guildCount = formatNumber(guild.members.length, { maximumFractionDigits: 0 });
+    const head = `<div class="soc-guild-head">&lt;${esc(guild.name)}&gt; <span class="gm">${esc(t(guildHeadKey, { rank: rankLabel(me), count: guildCount }))}</span></div>`;
     const rows = guild.members.map((m) => {
       const dot = m.online ? (m.status ?? 'online') : 'off';
-      const meta = m.online ? `<span class="zone">${esc(m.zone ?? '')}</span>` : 'Offline';
+      const meta = m.online
+        ? `<span class="zone">${esc(m.zone ?? '')}</span><br>${esc(statusLabel(m.status))}`
+        : t('hud.social.status.offline');
       const self = m.name === this.sim.player.name;
       const nameInner = `${esc(m.name)}<span class="rank">${rankLabel(m.rank)}</span>`;
       const name = m.online && !self
@@ -2904,7 +3236,7 @@ export class Hud {
       const canKick = !self && ((me === 'leader' && m.rank !== 'leader') || (me === 'officer' && m.rank === 'member'));
       if (canKick) actions += `<span class="soc-x" data-act="gkick" data-name="${esc(m.name)}" title="Remove ${esc(m.name)} from guild">✕</span>`;
       return `<div class="soc-row">`
-        + `<span class="soc-dot ${dot === 'off' ? '' : dot}"></span>`
+        + `<span class="soc-dot ${dot === 'off' ? '' : dot}" title="${esc(dotTitle(m.online, m.status, m.zone))}"></span>`
         + `<span>${name}<br><span class="soc-meta">Lvl ${m.level} ${cap(m.cls)}</span></span>`
         + `<span class="soc-meta">${meta}</span>`
         + (actions ? `<span class="soc-actions">${actions}</span>` : '')
@@ -3158,6 +3490,7 @@ export class Hud {
         this.tradeWasOpen = false;
         this.stagedTrade = { items: [], copper: 0 };
         this.lastTradeSig = '';
+        if ($('#bags').style.display === 'block') this.renderBags();
       }
       return;
     }
@@ -3283,7 +3616,7 @@ export class Hud {
   }
 
   // A labelled slider bound to a numeric setting; live-applies via the hook.
-  private settingSlider(parent: HTMLElement, label: string, key: keyof GameSettings): void {
+  private settingSlider(parent: HTMLElement, label: string, key: NumericSettingKey): void {
     const hooks = this.optionsHooks;
     if (!hooks) return;
     const r = SETTING_RANGES[key];
@@ -3312,7 +3645,7 @@ export class Hud {
     parent.appendChild(row);
   }
 
-  private settingToggle(parent: HTMLElement, label: string, key: keyof GameSettings): void {
+  private settingToggle(parent: HTMLElement, label: string, key: 'fullscreen'): void {
     const hooks = this.optionsHooks;
     if (!hooks) return;
     const row = document.createElement('div');
@@ -3407,7 +3740,7 @@ export class Hud {
     this.settingsViewFooter();
   }
 
-  // Display name for an action row. Action-bar slots show the ability that
+  // Display name for an action row. Action-bar slots show the shortcut that
   // currently occupies them (slot 0 is always Attack); everything else uses
   // its registry label.
   private actionDisplayName(actionId: string, fallback: string): string {
@@ -3415,15 +3748,47 @@ export class Hud {
     const slot = Number(actionId.slice(4));
     if (slot === 0) return t('hud.keybinds.actions.attack');
     const known = this.abilityForSlot(slot);
-    return known ? abilityDisplayName(known.def) : t('hud.keybinds.actions.actionBarSlot', { slot: slot + 1 });
+    if (known) return abilityDisplayName(known.def);
+    const item = this.itemForSlot(slot);
+    return item ? itemDisplayName(item) : t('hud.keybinds.actions.actionBarSlot', { slot: slot + 1 });
+  }
+
+  private settingBoolToggleKeybind(parent: HTMLElement, label: string, key: BoolSettingKey): void {
+    const hooks = this.optionsHooks;
+    if (!hooks) return;
+    const row = document.createElement('div');
+    row.className = 'kb-row kb-toggle-row';
+    const name = document.createElement('span');
+    name.className = 'kb-name';
+    name.textContent = label;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'btn kb-key kb-toggle';
+    const sync = () => {
+      const on = hooks.settings.get(key);
+      toggle.textContent = on ? t('hud.options.on') : t('hud.options.off');
+      toggle.classList.toggle('off', !on);
+      toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+      toggle.setAttribute('aria-label', label);
+    };
+    sync();
+    toggle.addEventListener('click', () => {
+      audio.click();
+      const next = !hooks.settings.get(key);
+      hooks.onSettingChange(key, hooks.settings.set(key, next));
+      sync();
+    });
+    row.append(name, toggle);
+    parent.appendChild(row);
   }
 
   private renderKeybinds(): void {
     const el = $('#options-menu');
     el.innerHTML = `<div class="panel-title"><span>${esc(t('hud.options.keyBindings'))}</span><button type="button" class="x-btn" data-close aria-label="${esc(t('hud.options.returnToGame'))}">✕</button></div>`;
+    this.settingBoolToggleKeybind(el, t('hud.options.mouseCamera'), 'mouseCamera');
     const note = document.createElement('div');
     note.className = 'kb-note';
-    note.textContent = this.keybindNote || t('hud.options.keybindHelp');
+    note.textContent = this.keybindNote || t('hud.options.keybindHelpMouseCamera');
     el.appendChild(note);
     const rows = document.createElement('div');
     rows.className = 'kb-rows';
@@ -3785,17 +4150,31 @@ function cap(s: string): string {
   return s ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
+function raidMarkerDisplayName(index: number): string {
+  return t(RAID_MARKER_LABEL_KEYS[index] ?? RAID_MARKER_LABEL_KEYS[0]);
+}
+
 function statusLabel(status: string | undefined): string {
   switch (status) {
-    case 'combat': return 'In Combat';
-    case 'dungeon': return 'In Dungeon';
-    case 'dead': return 'Dead';
-    default: return 'Online';
+    case 'combat': return t('hud.social.status.combat');
+    case 'dungeon': return t('hud.social.status.dungeon');
+    case 'dead': return t('hud.social.status.dead');
+    default: return t('hud.social.status.online');
   }
 }
 
+function dotTitle(online: boolean, status: string | undefined, zone: string | undefined): string {
+  if (!online) return t('hud.social.status.offline');
+  const label = statusLabel(status);
+  return zone ? t('hud.social.statusWithZone', { status: label, zone }) : label;
+}
+
 function rankLabel(rank: string): string {
-  return rank === 'leader' ? 'Guild Master' : rank === 'officer' ? 'Officer' : 'Member';
+  return rank === 'leader'
+    ? t('hud.social.ranks.leader')
+    : rank === 'officer'
+      ? t('hud.social.ranks.officer')
+      : t('hud.social.ranks.member');
 }
 
 function shade(hex: string, amt: number): string {

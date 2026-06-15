@@ -6,6 +6,7 @@ import {
   Entity, EquipSlot, InvSlot, MoveInput, PlayerClass, QuestProgress, QuestState, SimEvent,
   emptyMoveInput,
 } from '../sim/types';
+import { normalizeMoveFacing, sanitizeMoveInput } from '../sim/move_input';
 import type { ArenaInfo, CharacterSearchResult, DuelInfo, IWorld, MarketInfo, PartyInfo, SocialInfo, TradeInfo } from '../world_api';
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,11 @@ function copyPos(dst: { x: number; y: number; z: number }, src: { x: number; y: 
   dst.z = src.z;
 }
 
+// A single position update never moves an entity more than a few yards by
+// walking; anything past this is a teleport (arena pit, dungeon portal,
+// graveyard release). Those are snapped, not interpolated — see applyWire.
+const TELEPORT_SNAP_DIST_SQ = 40 * 40;
+
 function blankEntity(id: number): Entity {
   return {
     id, kind: 'mob', templateId: '', name: '', level: 1,
@@ -188,15 +194,15 @@ function blankEntity(id: number): Entity {
     attackPower: 0, rangedPower: 0, critChance: 0.05, dodgeChance: 0.05, moveSpeed: 7, hostile: false,
     targetId: null, autoAttack: false, swingTimer: 0,
     inCombat: false, combatTimer: 99,
-    auras: [], castingAbility: null, castRemaining: 0, castTotal: 0,
+    auras: [], ccDr: new Map(), castingAbility: null, castRemaining: 0, castTotal: 0,
     channeling: false, channelTickTimer: 0, channelTickEvery: 0,
     gcdRemaining: 0, cooldowns: new Map(), queuedOnSwing: null, fiveSecondRule: 99,
-    comboPoints: 0, comboTargetId: null, overpowerUntil: -1, savedMana: 0,
+    comboPoints: 0, comboTargetId: null, overpowerUntil: -1, potionCooldownUntil: -1, savedMana: 0,
     chargeTargetId: null, chargeTimeLeft: 0, chargePath: [],
     sitting: false, eating: null, drinking: null,
     aiState: 'idle', tappedById: null, pulseTimer: 0, firedSummons: 0, summonedIds: [], enraged: false,
     threat: new Map(), forcedTargetId: null, forcedTargetTimer: 0, ownerId: null, petTauntTimer: 0,
-    spawnPos: { x: 0, y: 0, z: 0 }, wanderTarget: null, wanderTimer: 0,
+    spawnPos: { x: 0, y: 0, z: 0 }, leashAnchor: null, evadeStall: 0, wanderTarget: null, wanderTimer: 0,
     aggroTargetId: null, respawnTimer: 0, corpseTimer: 0, lootable: false, loot: null,
     xpValue: 0, questIds: [], vendorItems: [], objectItemId: null, dungeonId: null,
     dead: false, scale: 1, color: 0xffffff,
@@ -209,6 +215,7 @@ export class ClientWorld implements IWorld {
   playerId = -1;
   moveInput: MoveInput = emptyMoveInput();
   inventory: InvSlot[] = [];
+  vendorBuyback: InvSlot[] = [];
   equipment: Partial<Record<EquipSlot, string>> = {};
   copper = 0;
   xp = 0;
@@ -221,6 +228,7 @@ export class ClientWorld implements IWorld {
   socialInfo: SocialInfo | null = null;
   arenaInfo: ArenaInfo | null = null;
   marketInfo: MarketInfo | null = null;
+  markers: Record<number, number> = {}; // entityId -> markerId, mirrored from the self-wire
   realm = '';
   // bumped whenever a fresh social snapshot lands, so an open panel re-renders
   private socialDirty = false;
@@ -284,8 +292,13 @@ export class ClientWorld implements IWorld {
     return out;
   }
 
-  setMouselookFacing(facing: number | null): void {
-    this.mouselookFacing = facing;
+  setMoveInput(input: unknown, facing?: unknown): void {
+    Object.assign(this.moveInput, sanitizeMoveInput(input));
+    if (arguments.length > 1) this.setMouselookFacing(facing);
+  }
+
+  setMouselookFacing(facing: unknown): void {
+    this.mouselookFacing = normalizeMoveFacing(facing);
   }
 
   // -----------------------------------------------------------------------
@@ -428,10 +441,25 @@ export class ClientWorld implements IWorld {
         }
       }
       e.netUpdatedAt = now;
-      e.prevPos.x = e.prevPos.x + (e.pos.x - e.prevPos.x) * entAlpha;
-      e.prevPos.y = e.prevPos.y + (e.pos.y - e.prevPos.y) * entAlpha;
-      e.prevPos.z = e.prevPos.z + (e.pos.z - e.prevPos.z) * entAlpha;
-      e.prevFacing = e.prevFacing + wrapAngle(e.facing - e.prevFacing) * entFacingAlpha;
+      // A teleport (arena pit, dungeon portal, graveyard release) jumps an
+      // entity far further than any single walking update could. Interpolating
+      // across that gap streaks it across the map — and when its per-entity
+      // interpolation clock isn't established yet, the renderer falls back to
+      // the global alpha and the entity sticks at its old pose until its next
+      // real update (e.g. taking damage). Snap both poses to the destination so
+      // it appears exactly where the server placed it.
+      const teleDx = w.x - e.pos.x, teleDz = w.z - e.pos.z;
+      if (teleDx * teleDx + teleDz * teleDz > TELEPORT_SNAP_DIST_SQ) {
+        e.prevPos = { x: w.x, y: w.y, z: w.z };
+        e.prevFacing = w.f;
+      } else {
+        e.prevPos = {
+          x: e.prevPos.x + (e.pos.x - e.prevPos.x) * entAlpha,
+          y: e.prevPos.y + (e.pos.y - e.prevPos.y) * entAlpha,
+          z: e.prevPos.z + (e.pos.z - e.prevPos.z) * entAlpha,
+        };
+        e.prevFacing = e.prevFacing + wrapAngle(e.facing - e.prevFacing) * entFacingAlpha;
+      }
       e.pos.x = w.x; e.pos.y = w.y; e.pos.z = w.z;
       e.facing = w.f;
       e.hp = w.hp;
@@ -496,12 +524,14 @@ export class ClientWorld implements IWorld {
       this.xp = s.xp ?? 0;
       this.copper = s.copper ?? 0;
       if (s.inv !== undefined) { this.inventory = s.inv; this.invChanged = true; }
+      if (s.buyback !== undefined) { this.vendorBuyback = s.buyback; this.invChanged = true; }
       if (s.equip !== undefined) this.equipment = s.equip;
       if (s.qlog !== undefined) this.questLog = new Map((s.qlog as QuestProgress[]).map((q) => [q.questId, q]));
       if (s.qdone !== undefined) this.questsDone = new Set(s.qdone);
       if (s.qlog !== undefined || s.qdone !== undefined) this.pendingQuestCommands?.clear();
       this.known = abilitiesKnownAt(this.cfg.playerClass, e.level);
       if (s.party !== undefined) this.partyInfo = s.party;
+      if (s.marks !== undefined) this.markers = s.marks ?? {}; // null = cleared (no party/disband)
       if (s.trade !== undefined) this.tradeInfo = s.trade;
       if (s.duel !== undefined) this.duelInfo = s.duel;
       if (s.arena !== undefined) this.arenaInfo = s.arena;
@@ -598,8 +628,11 @@ export class ClientWorld implements IWorld {
   buyItem(npcId: number, itemId: string): void {
     this.cmd({ cmd: 'buy', npc: npcId, item: itemId });
   }
-  sellItem(itemId: string): void {
-    this.cmd({ cmd: 'sell', item: itemId });
+  sellItem(itemId: string, count?: number): void {
+    this.cmd({ cmd: 'sell', item: itemId, count });
+  }
+  buyBackItem(itemId: string): void {
+    this.cmd({ cmd: 'buyback', item: itemId });
   }
   releaseSpirit(): void {
     this.cmd({ cmd: 'release' });
@@ -622,6 +655,16 @@ export class ClientWorld implements IWorld {
   }
   partyKick(targetPid: number): void {
     this.cmd({ cmd: 'pkick', id: targetPid });
+  }
+  // raid/target markers
+  markerFor(entityId: number): number | null {
+    return this.markers[entityId] ?? null;
+  }
+  setMarker(entityId: number, markerId: number): void {
+    this.cmd({ cmd: 'setMarker', id: entityId, marker: markerId });
+  }
+  clearMarker(entityId: number): void {
+    this.cmd({ cmd: 'clearMarker', id: entityId });
   }
   tradeRequest(targetPid: number): void {
     this.cmd({ cmd: 'trade_req', id: targetPid });

@@ -4,8 +4,9 @@ import type { IWorld } from '../world_api';
 import { groundHeight, WATER_LEVEL, zoneBiomeAt } from '../sim/world';
 import {
   MOBS, ABILITIES, DUNGEON_X_THRESHOLD, DUNGEON_LIST, QUESTS,
-  instanceOrigin, INSTANCE_SLOT_COUNT, ARENA_SLOT_COUNT, arenaOrigin, isArenaPos,
+  instanceOrigin, INSTANCE_SLOT_COUNT, ARENA_SLOT_COUNT, arenaOrigin, arenaOriginAt, isArenaPos,
 } from '../sim/data';
+import { ARENA_LAYOUT, DUNGEON_WALL_X } from '../sim/dungeon_layout';
 import type { BiomeId } from '../sim/types';
 import { AnimState, CharacterVisual, createCharacterVisual } from './characters';
 import { LocoTrack, newLocoTrack, updateLocomotion } from './locomotion';
@@ -24,6 +25,7 @@ import { buildFoliage, FoliageView } from './foliage';
 import { shouldRenderStealthGhost } from './stealth';
 import { t } from '../ui/i18n';
 import { tEntity } from '../ui/entity_i18n';
+import { raidMarkerDataUrl } from '../ui/icons';
 
 const NAMEPLATE_RANGE = 55;
 // Entities further than this from the player are hidden entirely: their rigs
@@ -78,6 +80,7 @@ interface EntityView {
   hpBar: HTMLDivElement;
   hpFill: HTMLDivElement;
   markerEl: HTMLDivElement;
+  raidMarkEl: HTMLDivElement; // party raid/target marker, above the name
   sparkle?: THREE.Sprite; // ground objects
   objectMesh?: THREE.Object3D;
   portal?: THREE.Mesh; // dungeon door swirl
@@ -584,6 +587,9 @@ export class Renderer {
     // nameplate
     const np = document.createElement('div');
     np.className = 'nameplate';
+    const raidMark = document.createElement('div');
+    raidMark.className = 'np-raidmark';
+    raidMark.style.display = 'none';
     const marker = document.createElement('div');
     marker.className = 'np-marker';
     const nameEl = document.createElement('div');
@@ -594,7 +600,7 @@ export class Renderer {
     const hpFill = document.createElement('div');
     hpFill.className = 'np-hpfill';
     hpBar.appendChild(hpFill);
-    np.append(marker, nameEl, hpBar);
+    np.append(raidMark, marker, nameEl, hpBar);
     this.nameplateLayer.appendChild(np);
 
     // object views gate their own casters; character shadows live in visual
@@ -602,7 +608,7 @@ export class Renderer {
     if (!visual) collectCasters(group, objectCasters);
     this.views.set(e.id, {
       group, visual, sheepVisual: null, bearVisual: null, height, clickTarget,
-      nameplate: np, nameEl, hpBar, hpFill, markerEl: marker, sparkle, objectMesh, portal,
+      nameplate: np, nameEl, hpBar, hpFill, markerEl: marker, raidMarkEl: raidMark, sparkle, objectMesh, portal,
       objectCasters, shadowOn: true, isFar: false,
       lastX: e.pos.x, lastZ: e.pos.z,
       loco: newLocoTrack(),
@@ -1060,9 +1066,18 @@ export class Renderer {
     const py = p.prevPos.y + (p.pos.y - p.prevPos.y) * alpha;
     const pz = p.prevPos.z + (p.pos.z - p.prevPos.z) * alpha;
     const eyeY = py + 2.0;
-    const cx = px - Math.sin(this.camYaw) * Math.cos(this.camPitch) * this.camDist;
+    let cx = px - Math.sin(this.camYaw) * Math.cos(this.camPitch) * this.camDist;
     const cy = eyeY + Math.sin(this.camPitch) * this.camDist;
-    const cz = pz - Math.cos(this.camYaw) * Math.cos(this.camPitch) * this.camDist;
+    let cz = pz - Math.cos(this.camYaw) * Math.cos(this.camPitch) * this.camDist;
+    // The Ashen Coliseum is a small enclosed pit and the combatants spawn only
+    // ~6yd from the end walls, so the 12yd chase cam would otherwise sit outside
+    // the walls looking in. Keep it inside the room's interior box.
+    if (isArenaPos(p.pos.x)) {
+      const o = arenaOriginAt(p.pos.z);
+      const m = 2; // clearance from the wall faces
+      cx = Math.min(Math.max(cx, o.x - DUNGEON_WALL_X + m), o.x + DUNGEON_WALL_X - m);
+      cz = Math.min(Math.max(cz, o.z + ARENA_LAYOUT.zMin + m), o.z + ARENA_LAYOUT.zMax - m);
+    }
     const groundY = groundHeight(cx, cz, this.sim.cfg.seed) + 0.6;
     this.camera.position.set(cx, Math.max(cy, groundY), cz);
     this.camera.lookAt(px, eyeY, pz);
@@ -1095,6 +1110,15 @@ export class Renderer {
       const sy = (-this.tmpV.y * 0.5 + 0.5) * h;
       v.nameplate.style.display = '';
       v.nameplate.style.transform = `translate(${sx.toFixed(0)}px, ${sy.toFixed(0)}px) translate(-50%, -100%)`;
+
+      // party raid/target marker (only mobs are markable, so this is null elsewhere)
+      const raidMark = this.sim.markerFor(e.id);
+      if (raidMark !== null) {
+        v.raidMarkEl.style.backgroundImage = `url(${raidMarkerDataUrl(raidMark)})`;
+        v.raidMarkEl.style.display = '';
+      } else {
+        v.raidMarkEl.style.display = 'none';
+      }
 
       if (e.kind === 'object') {
         // dungeon doorways announce themselves
@@ -1186,6 +1210,20 @@ export class Renderer {
       const sy = (-this.tmpV.y * 0.5 + 0.5) * h;
       b.el.style.transform = `translate(${sx.toFixed(0)}px, ${sy.toFixed(0)}px) translate(-50%, -100%)`;
     }
+  }
+
+  // Click-to-move (#95): where a screen click meets the ground. Intersects a
+  // horizontal plane at the player's foot height — robust on the gentle terrain
+  // here and far cheaper than raycasting the terrain mesh.
+  groundPoint(clientX: number, clientY: number, planeY: number): { x: number; z: number } | null {
+    const ndc = new THREE.Vector2(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY);
+    const hit = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(plane, hit) ? { x: hit.x, z: hit.z } : null;
   }
 
   pick(clientX: number, clientY: number): number | null {

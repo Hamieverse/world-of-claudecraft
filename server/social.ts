@@ -224,6 +224,7 @@ export class SocialService {
   // see a come-online / go-offline notice (and refresh their panel).
   async announcePresence(actor: SocialActor, online: boolean): Promise<void> {
     const watchers = await this.db.whoFriended(actor.characterId);
+    const notified = new Set<number>();
     for (const watcherId of watchers) {
       if (!this.tx.isOnline(watcherId)) continue;
       this.tx.deliver(watcherId, [{
@@ -232,6 +233,19 @@ export class SocialService {
         color: '#7fd4ff',
       }]);
       this.push(watcherId);
+      notified.add(watcherId);
+    }
+    // Guild members must see each other's presence too, so the guild roster
+    // stays as fresh as the friends list (#100). Refresh their panel (the dot
+    // and location) without a chat notice, to avoid spamming large guilds.
+    const membership = await this.db.guildMembership(actor.characterId);
+    if (membership) {
+      const members = await this.db.guildMembers(membership.guildId);
+      for (const m of members) {
+        if (m.id === actor.characterId || notified.has(m.id) || !this.tx.isOnline(m.id)) continue;
+        this.push(m.id);
+        notified.add(m.id);
+      }
     }
   }
 

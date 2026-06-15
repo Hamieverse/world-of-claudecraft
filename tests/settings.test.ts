@@ -21,6 +21,7 @@ describe('Settings', () => {
     expect(s.get('sfxVolume')).toBe(SETTING_RANGES.sfxVolume.def);
     expect(s.get('renderScale')).toBe(1);
     expect(s.get('fullscreen')).toBe(1);
+    expect(s.get('mouseCamera')).toBe(false);
   });
 
   it('clamps out-of-range values to the slider bounds', () => {
@@ -48,6 +49,13 @@ describe('Settings', () => {
     expect(b.get('fullscreen')).toBe(0);
   });
 
+  it('persists boolean settings across instances', () => {
+    const a = new Settings();
+    a.set('mouseCamera', true);
+    const b = new Settings();
+    expect(b.get('mouseCamera')).toBe(true);
+  });
+
   it('falls back to defaults for missing/corrupt keys', () => {
     localStorage.setItem('woc_settings', JSON.stringify({ cameraSpeed: 0.5 }));
     const s = new Settings();
@@ -61,10 +69,12 @@ describe('Settings', () => {
     s.set('cameraSpeed', 1.2);
     s.set('renderScale', 0.5);
     s.set('fullscreen', 0);
+    s.set('mouseCamera', true);
     s.reset();
     expect(s.get('cameraSpeed')).toBe(SETTING_RANGES.cameraSpeed.def);
     expect(s.get('renderScale')).toBe(SETTING_RANGES.renderScale.def);
     expect(s.get('fullscreen')).toBe(SETTING_RANGES.fullscreen.def);
+    expect(s.get('mouseCamera')).toBe(false);
   });
 
   it('all() returns an independent snapshot', () => {

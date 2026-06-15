@@ -86,6 +86,17 @@ export const REWARD_ARCHETYPE: Record<PlayerClass, PlayerClass> = {
   mage: 'mage', priest: 'mage', warlock: 'mage', druid: 'mage',
 };
 
+// Resolve the item a quest awards a given class: a class-specific reward if the
+// quest lists one, else the reward for the class's archetype (rewards are
+// authored per archetype — warrior/rogue/mage). The dialog preview and the
+// turn-in grant MUST both call this so what the player is shown matches what
+// they receive. Returns undefined when the quest has no item reward.
+export function questRewardItem(quest: QuestDef, cls: PlayerClass): string | undefined {
+  return quest.itemRewards[cls] ?? quest.itemRewards[REWARD_ARCHETYPE[cls]];
+}
+
+export const questRewardItemId = questRewardItem;
+
 // Vanilla group XP multipliers by party size (1-5).
 export const GROUP_XP_BONUS = [1, 1, 1.166, 1.3, 1.43];
 

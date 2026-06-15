@@ -232,6 +232,18 @@ describe('classic pull-over rules (110% melee / 130% ranged)', () => {
     // the dead player dropped off the table entirely
     expect(wolf.threat.has(a.id)).toBe(false);
   });
+
+  it('when the target dies the mob evades instead of attacking a bystander with no threat', () => {
+    const { sim, a, b, wolf } = aggroSetup();
+    teleport(sim, b, wolf.pos.x + 2, wolf.pos.z + 2);
+
+    (sim as any).dealDamage(wolf, a, 99999, false, 'physical', null, 'hit', true);
+
+    expect(a.dead).toBe(true);
+    expect(wolf.threat.has(b.id)).toBe(false);
+    expect(wolf.aggroTargetId).not.toBe(b.id);
+    expect(wolf.aiState).toBe('evade');
+  });
 });
 
 describe('taunt and growl', () => {
@@ -387,6 +399,55 @@ describe('hunter pets', () => {
     expect(sim.petOf(sim.playerId)).toBe(wolf);
   });
 
+  it('friendly target spells can affect controlled pets', () => {
+    const { sim, wolf: pet } = tamedSetup();
+    const druidId = sim.addPlayer('druid', 'Druid');
+    const druid = sim.entities.get(druidId)!;
+    teleport(sim, druid, pet.pos.x + 5, pet.pos.z);
+    druid.resource = druid.maxResource;
+    const armorBefore = (sim as any).effectiveArmor(pet);
+
+    sim.targetEntity(pet.id, druidId);
+    sim.castAbility('mark_of_the_wild', druidId);
+    expect(pet.auras.some((a) => a.id === 'mark_of_the_wild')).toBe(true);
+    expect((sim as any).effectiveArmor(pet)).toBeGreaterThan(armorBefore);
+
+    const priestId = sim.addPlayer('priest', 'Priest');
+    const priest = sim.entities.get(priestId)!;
+    teleport(sim, priest, pet.pos.x + 6, pet.pos.z);
+    priest.resource = priest.maxResource;
+    const maxHpBefore = pet.maxHp;
+    sim.targetEntity(pet.id, priestId);
+    sim.castAbility('power_word_fortitude', priestId);
+    expect(pet.maxHp).toBeGreaterThan(maxHpBefore);
+
+    const paladinId = sim.addPlayer('paladin', 'Paladin');
+    const paladin = sim.entities.get(paladinId)!;
+    sim.setPlayerLevel(4, paladinId);
+    teleport(sim, paladin, pet.pos.x + 7, pet.pos.z);
+    paladin.resource = paladin.maxResource;
+    const attackPowerBefore = (sim as any).effectiveAttackPower(pet);
+    sim.targetEntity(pet.id, paladinId);
+    sim.castAbility('blessing_of_might', paladinId);
+    expect((sim as any).effectiveAttackPower(pet)).toBeGreaterThan(attackPowerBefore);
+
+    pet.hp = pet.maxHp - 40;
+    const damagedHp = pet.hp;
+    for (let i = 0; i < 20 * 2; i++) sim.tick();
+    sim.castAbility('healing_touch', druidId);
+    for (let i = 0; i < 20 * 3; i++) sim.tick();
+
+    expect(pet.hp).toBeGreaterThan(damagedHp);
+
+    (sim as any).dealDamage(null, pet, pet.hp, false, 'physical', 'test', 'hit');
+    expect(pet.dead).toBe(true);
+    expect(pet.auras).toHaveLength(0);
+    expect(pet.maxHp).toBe(maxHpBefore);
+    (sim as any).respawnMob(pet);
+    expect(pet.auras).toHaveLength(0);
+    expect(pet.maxHp).toBe(maxHpBefore);
+  });
+
   it('the pet assists against attackers, growls, and builds its own threat', () => {
     const { sim, wolf: pet } = tamedSetup();
     const boar = nearestMob(sim, 'wild_boar');
@@ -408,10 +469,21 @@ describe('hunter pets', () => {
 
   it('dismiss releases the pet back to the wild', () => {
     const { sim, wolf } = tamedSetup();
+    const priestId = sim.addPlayer('priest', 'Priest');
+    const priest = sim.entities.get(priestId)!;
+    teleport(sim, priest, wolf.pos.x + 5, wolf.pos.z);
+    priest.resource = priest.maxResource;
+    const maxHpBefore = wolf.maxHp;
+    sim.targetEntity(wolf.id, priestId);
+    sim.castAbility('power_word_fortitude', priestId);
+    expect(wolf.maxHp).toBeGreaterThan(maxHpBefore);
+
     for (let i = 0; i < 25; i++) sim.tick();
     sim.castAbility('dismiss_pet');
     expect(wolf.ownerId).toBe(null);
     expect(wolf.hostile).toBe(true);
+    expect(wolf.auras).toHaveLength(0);
+    expect(wolf.maxHp).toBe(maxHpBefore);
     expect(sim.petOf(sim.playerId)).toBe(null);
   });
 
@@ -530,5 +602,109 @@ describe('druid forms', () => {
     sim.castAbility('wrath');
     const events = sim.tick();
     expect(events.some((e) => e.type === 'error' && /shapeshifted/.test(e.text))).toBe(true);
+  });
+});
+
+describe('untargetable-mob self-heal (#113/#99)', () => {
+  it('a wild mob left non-hostile is restored so it can never stay an immortal invalid target', () => {
+    const sim = makeSim();
+    const wolf = nearestMob(sim, 'forest_wolf');
+    // simulate a corruption/leak: owner-less but stuck neutral (grey, "Invalid target")
+    wolf.hostile = false;
+    wolf.ownerId = null;
+    expect(sim.isHostileTo(sim.player, wolf)).toBe(false); // currently untargetable
+
+    sim.tick(); // the per-mob safety net runs
+
+    expect(wolf.hostile).toBe(true);
+    expect(sim.isHostileTo(sim.player, wolf)).toBe(true); // attackable again
+  });
+
+  it('does not flip a tamed pet (owned, intentionally neutral) back to hostile', () => {
+    const sim = makeSim('hunter');
+    sim.setPlayerLevel(10);
+    const wolf = nearestMob(sim, 'forest_wolf');
+    teleport(sim, sim.player, wolf.pos.x + 5, wolf.pos.z);
+    sim.targetEntity(wolf.id);
+    sim.player.facing = Math.atan2(wolf.pos.x - sim.player.pos.x, wolf.pos.z - sim.player.pos.z);
+    sim.castAbility('tame_beast');
+    for (let i = 0; i < 20 * 7; i++) sim.tick();
+    expect(wolf.ownerId).toBe(sim.playerId);
+    expect(wolf.hostile).toBe(false); // pets stay neutral; the self-heal must not touch owned mobs
+  });
+});
+
+describe('social aggro pull radius (#102)', () => {
+  function twoMurlocs(sim: Sim): [Entity, Entity] {
+    const murlocs = [...sim.entities.values()].filter(
+      (e) => e.kind === 'mob' && !e.dead && e.ownerId === null && e.templateId === 'mudfin_murloc',
+    );
+    expect(murlocs.length).toBeGreaterThanOrEqual(2);
+    return [murlocs[0], murlocs[1]];
+  }
+
+  it('a murloc does not chain-pull a same-family neighbour 13yd away', () => {
+    const sim = makeSim();
+    const [a, b] = twoMurlocs(sim);
+    for (const m of [a, b]) { m.aiState = 'idle'; m.hostile = true; }
+    teleport(sim, b, a.pos.x + 13, a.pos.z); // beyond the tuned murloc radius
+    teleport(sim, sim.player, a.pos.x + 2, a.pos.z);
+    (sim as any).grid.refresh(sim.entities.values());
+    (sim as any).aggroMob(a, sim.player, true);
+    expect(b.aiState).toBe('idle'); // not chain-pulled
+  });
+
+  it('a murloc still pulls a neighbour within the tuned radius', () => {
+    const sim = makeSim();
+    const [a, b] = twoMurlocs(sim);
+    for (const m of [a, b]) { m.aiState = 'idle'; m.hostile = true; }
+    teleport(sim, b, a.pos.x + 7, a.pos.z); // inside the murloc radius
+    teleport(sim, sim.player, a.pos.x + 2, a.pos.z);
+    (sim as any).grid.refresh(sim.entities.values());
+    (sim as any).aggroMob(a, sim.player, true);
+    expect(b.aiState).toBe('chase');
+  });
+});
+
+describe('caster wand auto-attack (#94)', () => {
+  it('a mage auto-attacks at range instead of running into melee', () => {
+    const sim = makeSim('mage');
+    sim.setPlayerLevel(10);
+    const wolf = nearestMob(sim, 'forest_wolf');
+    const range = 15; // well outside MELEE_RANGE
+    teleport(sim, sim.player, wolf.pos.x + range, wolf.pos.z);
+    sim.targetEntity(wolf.id);
+    sim.player.facing = Math.atan2(wolf.pos.x - sim.player.pos.x, wolf.pos.z - sim.player.pos.z);
+    const startHp = wolf.hp;
+
+    sim.startAutoAttack(sim.playerId);
+    let sawWand = false;
+    for (let i = 0; i < 20 * 5 && !sawWand; i++) {
+      const events = sim.tick();
+      if (events.some((e) => e.type === 'damage' && (e as any).ability === 'Wand' && (e as any).sourceId === sim.playerId)) sawWand = true;
+    }
+
+    expect(sawWand).toBe(true);
+    expect(wolf.hp).toBeLessThan(startHp); // damage landed from range
+    expect(dist2d(sim.player.pos, wolf.pos)).toBeGreaterThan(5); // never closed to melee
+  });
+});
+
+describe('on-next-swing cooldowns (#56)', () => {
+  it('Raptor Strike applies its 6s cooldown when the queued swing resolves', () => {
+    const sim = makeSim('hunter');
+    sim.setPlayerLevel(10);
+    const wolf = nearestMob(sim, 'forest_wolf');
+    teleport(sim, sim.player, wolf.pos.x + 2, wolf.pos.z); // inside melee range
+    sim.targetEntity(wolf.id);
+    sim.player.facing = Math.atan2(wolf.pos.x - sim.player.pos.x, wolf.pos.z - sim.player.pos.z);
+    sim.player.resource = sim.player.maxResource;
+
+    sim.castAbility('raptor_strike'); // queues on next swing; cooldown not yet set
+    // tick until the auto-attack swing lands and consumes the queued ability
+    for (let i = 0; i < 20 * 4 && sim.player.queuedOnSwing !== null; i++) sim.tick();
+
+    expect(sim.player.queuedOnSwing).toBe(null); // the swing resolved
+    expect(sim.player.cooldowns.get('raptor_strike') ?? 0).toBeGreaterThan(0); // cooldown now ticking
   });
 });

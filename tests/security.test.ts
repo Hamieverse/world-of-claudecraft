@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { buildWebSocketAuthMessage, buildWebSocketUrl } from '../src/net/online';
 import { Sim } from '../src/sim/sim';
 import { normalizeCharName, offensiveName, offensiveUsername, validCharName, validUsername } from '../server/auth';
-import { rateLimited, requestIp } from '../server/ratelimit';
+import { rateLimited, requestIp, authThrottled, recordAuthFailure, clearAuthFailures } from '../server/ratelimit';
 
 function fakeReq(headers: Record<string, string>, remoteAddress: string) {
   const req: any = new EventEmitter();
@@ -109,6 +109,63 @@ describe('rate-limit client IP selection', () => {
     expect(aliceLimited).toBe(true);
     // ...while another player behind the same proxy is unaffected
     expect(rateLimited(fakeReq({ 'x-forwarded-for': '198.51.100.201' }, '172.18.0.1'))).toBe(false);
+  });
+
+  it('keeps limiting a persistent attacker after the memory backstop evicts', () => {
+    // A persistent attacker keeps hammering one endpoint while the IP map is
+    // pushed past its backstop threshold by churning many one-off IPs. The
+    // backstop must evict expired one-off entries, NOT wipe the attacker's
+    // live counter — otherwise flooding the map silently disables rate limiting.
+    const attacker = '203.0.113.250';
+    let limited = false;
+    for (let i = 0; i < 25; i++) {
+      limited = rateLimited(fakeReq({ 'x-forwarded-for': attacker }, '172.18.0.1'));
+    }
+    expect(limited).toBe(true);
+
+    // Churn past MAX_TRACKED_IPS (10_000) distinct clients to trip the backstop.
+    for (let i = 0; i < 10_050; i++) {
+      const a = (i >> 8) & 0xff;
+      const b = i & 0xff;
+      rateLimited(fakeReq({ 'x-forwarded-for': `100.64.${a}.${b}` }, '172.18.0.1'));
+    }
+
+    // The attacker's counter must survive eviction and stay limited.
+    expect(rateLimited(fakeReq({ 'x-forwarded-for': attacker }, '172.18.0.1'))).toBe(true);
+  });
+});
+
+describe('per-account failed-login throttle (#93)', () => {
+  it('throttles an account after repeated failed logins, regardless of source IP', () => {
+    const user = 'victim_account';
+    expect(authThrottled(user)).toBe(false);
+    // a credential-stuffing botnet hammers one account from many IPs
+    for (let i = 0; i < 10; i++) {
+      expect(authThrottled(user)).toBe(false); // still allowed to try
+      recordAuthFailure(user);
+    }
+    expect(authThrottled(user)).toBe(true); // now locked out for the window
+  });
+
+  it('is case/whitespace-insensitive so the same account cannot be split into buckets', () => {
+    for (let i = 0; i < 10; i++) recordAuthFailure('  CaseUser ');
+    expect(authThrottled('caseuser')).toBe(true);
+    expect(authThrottled('CASEUSER')).toBe(true);
+  });
+
+  it('clears failures after a successful login so honest typos are forgiven', () => {
+    const user = 'butterfingers';
+    for (let i = 0; i < 9; i++) recordAuthFailure(user);
+    expect(authThrottled(user)).toBe(false); // one under the ceiling
+    clearAuthFailures(user); // correct password on the next try
+    for (let i = 0; i < 9; i++) recordAuthFailure(user);
+    expect(authThrottled(user)).toBe(false); // counter started fresh
+  });
+
+  it('keeps separate accounts independent', () => {
+    for (let i = 0; i < 10; i++) recordAuthFailure('account_a');
+    expect(authThrottled('account_a')).toBe(true);
+    expect(authThrottled('account_b')).toBe(false);
   });
 });
 

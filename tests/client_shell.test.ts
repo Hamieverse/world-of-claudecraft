@@ -30,4 +30,17 @@ describe('client HTML shell', () => {
     expect(liveHtml).not.toContain('Combat Log');
     expect(liveHtml).not.toContain('id="chat-input"');
   });
+
+  it('offers the quest log in the mobile controls drawer', () => {
+    expect(html).toContain('id="mobile-extra-controls"');
+    expect(html).toContain('id="mobile-quest"');
+    expect(html).toContain('aria-label="Quest Log"');
+  });
+
+  it('caps mobile quest and NPC panels instead of stretching them edge to edge', () => {
+    expect(html).toContain('body.mobile-touch #quest-log-window,\n  body.mobile-touch #vendor-window,\n  body.mobile-touch #quest-dialog');
+    expect(html).toContain('width: clamp(320px, 76vw, 680px);');
+    expect(html).toContain('max-width: calc(100vw - 20px);');
+    expect(html).toContain('transform: translateX(-50%);');
+  });
 });
