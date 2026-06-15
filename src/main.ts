@@ -433,6 +433,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     onTalents: () => hud.toggleTalents(),
     onMeters: () => hud.toggleMeters(),
     onMap: () => hud.toggleMap(),
+    onNameplates: () => (renderer.showNameplates = !renderer.showNameplates),
   });
   mobileControls.start();
 
