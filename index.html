@@ -1627,6 +1627,90 @@
     letter-spacing: 0.8px;
     margin-right: var(--spacing-xs);
   }
+  /* $WOC contract address — click-to-copy pill, sits under the performance tip. */
+  #token-ca {
+    margin: var(--spacing-md) auto 0;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+  .token-ca-label {
+    font-family: var(--font-heading);
+    color: var(--color-primary);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-size: 12px;
+    text-shadow: 0 0 8px var(--color-primary-glow), 1px 1px 2px #000;
+  }
+  .token-ca-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    max-width: 100%;
+    margin: 0;
+    padding: 9px var(--spacing-md);
+    background: rgba(11, 11, 18, 0.6);
+    border: 1px solid rgba(199, 148, 26, 0.45);
+    border-radius: var(--radius-md);
+    color: var(--color-text-light);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+    transition: border-color var(--transition-speed) var(--transition-ease),
+                box-shadow var(--transition-speed) var(--transition-ease),
+                background var(--transition-speed) var(--transition-ease);
+  }
+  .token-ca-pill:hover,
+  .token-ca-pill:focus-visible {
+    border-color: var(--color-primary);
+    background: rgba(11, 11, 18, 0.85);
+    box-shadow: 0 0 12px var(--color-primary-glow);
+    outline: none;
+  }
+  .token-ca-addr {
+    font-family: 'SFMono-Regular', ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 0.4px;
+    color: var(--color-text-light);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 1px 1px 2px #000;
+  }
+  .token-ca-copy {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    color: var(--color-primary-dim);
+    transition: color var(--transition-speed) var(--transition-ease);
+  }
+  .token-ca-pill:hover .token-ca-copy { color: var(--color-primary); }
+  .token-ca-copy svg { width: 16px; height: 16px; display: block; }
+  .token-ca-copy .icon-check { display: none; }
+  .token-ca-feedback {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--color-text-success);
+    opacity: 0;
+    transform: translateY(-2px);
+    transition: opacity var(--transition-speed) var(--transition-ease),
+                transform var(--transition-speed) var(--transition-ease);
+  }
+  /* Copied state — swap clipboard glyph for a check, reveal the confirmation. */
+  #token-ca.is-copied .token-ca-pill { border-color: var(--color-text-success); }
+  #token-ca.is-copied .token-ca-copy { color: var(--color-text-success); }
+  #token-ca.is-copied .token-ca-copy .icon-clipboard { display: none; }
+  #token-ca.is-copied .token-ca-copy .icon-check { display: block; }
+  #token-ca.is-copied .token-ca-feedback { opacity: 1; transform: translateY(0); }
+  @media (max-width: 520px) {
+    .token-ca-addr { font-size: 11px; letter-spacing: 0.2px; }
+    .token-ca-pill { padding: 8px var(--spacing-sm); }
+  }
   .auth-panel { width: 100%; max-width: 360px; padding: 16px; }
   .auth-panel input {
     display: block;
@@ -3778,6 +3862,18 @@
             </div>
           </div>
           <div id="performance-tip"><b data-i18n="mode.tipTitle">TIP:</b> <span data-i18n="mode.tipText">For the smoothest experience, turn off ad blocker extensions on this site. Community reports found some blockers can cause lag.</span></div>
+
+          <div id="token-ca">
+            <span class="token-ca-label" data-i18n="mode.caLabel">$WOC Contract Address</span>
+            <button type="button" id="btn-copy-ca" class="token-ca-pill" data-ca="3WjLscH2JsXLEFJZRA9z8ti8yRGxWGKbqymPd7UicRth" data-i18n-aria="mode.caCopyAria" aria-label="Copy contract address">
+              <code class="token-ca-addr">3WjLscH2JsXLEFJZRA9z8ti8yRGxWGKbqymPd7UicRth</code>
+              <span class="token-ca-copy" aria-hidden="true">
+                <svg class="icon-clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <svg class="icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </span>
+            </button>
+            <span class="token-ca-feedback" role="status" aria-live="polite" data-i18n="mode.caCopied">Copied!</span>
+          </div>
         </div>
 
         <form id="login-panel" class="panel auth-panel auth-panel-premium" hidden novalidate>

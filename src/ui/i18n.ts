@@ -192,6 +192,9 @@ export const en = {
     offlineAria: "Play Offline: start an instant local single-player session",
     tipTitle: "TIP:",
     tipText: "For the smoothest experience, turn off ad blocker extensions on this site. Community reports found some blockers can cause lag.",
+    caLabel: "$WOC Contract Address",
+    caCopied: "Copied!",
+    caCopyAria: "Copy contract address",
   },
   auth: {
     enterRealm: "Enter the Realm",
@@ -323,6 +326,9 @@ export const es: typeof en = {
     offlineAria: "Jugar en Solitario: inicia una sesión local instantánea de un jugador",
     tipTitle: "CONSEJO:",
     tipText: "Para la mejor experiencia, desactiva las extensiones de bloqueo de publicidad en este sitio. Reportes de la comunidad encontraron que algunos bloqueadores pueden causar retrasos.",
+    caLabel: "Dirección del contrato $WOC",
+    caCopied: "¡Copiado!",
+    caCopyAria: "Copiar dirección del contrato",
   },
   auth: {
     enterRealm: "Entrar al Reino",
@@ -454,6 +460,9 @@ export const es_ES: typeof en = {
     offlineAria: "Jugar en solitario: inicia una sesión local instantánea de un jugador",
     tipTitle: "CONSEJO:",
     tipText: "Para la mejor experiencia, desactiva las extensiones de bloqueo de publicidad en este sitio. Reportes de la comunidad encontraron que algunos bloqueadores pueden causar retrasos.",
+    caLabel: "Dirección del contrato $WOC",
+    caCopied: "¡Copiado!",
+    caCopyAria: "Copiar dirección del contrato",
   },
   auth: {
     enterRealm: "Entrar al reino",
@@ -585,6 +594,9 @@ export const fr_FR: typeof en = {
     offlineAria: "Jouer hors ligne: démarrer une session solo locale instantanée",
     tipTitle: "CONSEIL:",
     tipText: "Pour une expérience optimale, désactivez les extensions de blocage de publicité sur ce site. Certains bloqueurs peuvent causer des latences.",
+    caLabel: "Adresse du contrat $WOC",
+    caCopied: "Copié !",
+    caCopyAria: "Copier l'adresse du contrat",
   },
   auth: {
     enterRealm: "Entrer dans le royaume",
@@ -716,6 +728,9 @@ export const fr_CA: typeof en = {
     offlineAria: "Jouer hors ligne: démarrer une session solo locale instantanée",
     tipTitle: "CONSEIL:",
     tipText: "Pour une expérience optimale, désactivez les extensions de blocage de publicité sur ce site. Certains bloqueurs peuvent causer des latences.",
+    caLabel: "Adresse du contrat $WOC",
+    caCopied: "Copié !",
+    caCopyAria: "Copier l'adresse du contrat",
   },
   auth: {
     enterRealm: "Entrer dans le royaume",
@@ -847,6 +862,9 @@ export const en_CA: typeof en = {
     offlineAria: "Play Offline: start an instant local single-player session",
     tipTitle: "TIP:",
     tipText: "For the smoothest experience, turn off ad blocker extensions on this site. Community reports found some blockers can cause lag.",
+    caLabel: "$WOC Contract Address",
+    caCopied: "Copied!",
+    caCopyAria: "Copy contract address",
   },
   auth: {
     enterRealm: "Enter the Realm",
@@ -978,6 +996,9 @@ export const it_IT: typeof en = {
     offlineAria: "Gioca offline: avvia una sessione locale a giocatore singolo istantanea",
     tipTitle: "SUGGERIMENTO:",
     tipText: "Per un'esperienza ottimale, disattiva le estensioni di blocco della pubblicità su questo sito. Alcuni utenti segnalano che i blocchi possono causare rallentamenti.",
+    caLabel: "Indirizzo del contratto $WOC",
+    caCopied: "Copiato!",
+    caCopyAria: "Copia l'indirizzo del contratto",
   },
   auth: {
     enterRealm: "Entra nel reame",
@@ -1109,6 +1130,9 @@ export const de_DE: typeof en = {
     offlineAria: "Offline spielen: Starte eine sofortige lokale Einzelspielersitzung",
     tipTitle: "TIPP:",
     tipText: "Deaktiviere für das flüssigste Spielerlebnis Adblocker-Erweiterungen auf dieser Website. Community-Berichte zeigen, dass einige Blocker zu Verzögerungen führen können.",
+    caLabel: "$WOC-Contract-Adresse",
+    caCopied: "Kopiert!",
+    caCopyAria: "Contract-Adresse kopieren",
   },
   auth: {
     enterRealm: "Realm betreten",
@@ -1240,6 +1264,9 @@ export const zh_CN: typeof en = {
     offlineAria: "单机试玩：直接开始本地单人游戏会话",
     tipTitle: "提示：",
     tipText: "为了获得最流畅的游玩体验，请在此网站上关闭广告拦截插件。根据社区反馈，部分拦截器可能会导致游戏卡顿。",
+    caLabel: "$WOC 合约地址",
+    caCopied: "已复制！",
+    caCopyAria: "复制合约地址",
   },
   auth: {
     enterRealm: "进入服务器",
@@ -1371,6 +1398,9 @@ export const zh_TW: typeof en = {
     offlineAria: "單機試玩：直接開始本地單人遊戲會話",
     tipTitle: "提示：",
     tipText: "為了獲得最流暢的遊玩體驗，請在此網站上關閉廣告攔截外掛。根據社群回饋，部分攔截器可能會導致遊戲延遲。",
+    caLabel: "$WOC 合約地址",
+    caCopied: "已複製！",
+    caCopyAria: "複製合約地址",
   },
   auth: {
     enterRealm: "進入伺服器",
@@ -1502,6 +1532,9 @@ export const ko_KR: typeof en = {
     offlineAria: "오프라인 플레이: 즉각적인 로컬 싱글 플레이 세션을 시작합니다",
     tipTitle: "팁:",
     tipText: "가장 원활한 이용을 위해 이 웹사이트의 광고 차단기 확장 프로그램을 비활성화해 주세요. 일부 차단기가 게임 성능 지연을 유발할 수 있습니다.",
+    caLabel: "$WOC 컨트랙트 주소",
+    caCopied: "복사됨!",
+    caCopyAria: "컨트랙트 주소 복사",
   },
   auth: {
     enterRealm: "렐름 입장",
@@ -1633,6 +1666,9 @@ export const ja_JP: typeof en = {
     offlineAria: "オフラインでプレイ：即座にローカルシングルプレイヤーセッションを開始します",
     tipTitle: "ヒント：",
     tipText: "よりスムーズな体験のために、本サイトでの広告ブロック拡張機能を無効にしてください。コミュニティの報告によると、一部のブロック機能がラグの原因になる場合があります。",
+    caLabel: "$WOC コントラクトアドレス",
+    caCopied: "コピーしました！",
+    caCopyAria: "コントラクトアドレスをコピー",
   },
   auth: {
     enterRealm: "レルムに入る",
@@ -1764,6 +1800,9 @@ export const pt_BR: typeof en = {
     offlineAria: "Jogar offline: inicie uma sessão local de um jogador instantânea",
     tipTitle: "DICA:",
     tipText: "Para uma experiência mais suave, desative os bloqueadores de anúncios neste site. Relatos da comunidade indicam que alguns bloqueadores podem causar lag.",
+    caLabel: "Endereço do contrato $WOC",
+    caCopied: "Copiado!",
+    caCopyAria: "Copiar endereço do contrato",
   },
   auth: {
     enterRealm: "Entrar no reino",
@@ -1895,6 +1934,9 @@ export const ru_RU: typeof en = {
     offlineAria: "Играть вне сети: запуск мгновенного локального одиночного сеанса",
     tipTitle: "СОВЕТ:",
     tipText: "Для максимально плавной игры отключите блокировщики рекламы на этом сайте. По отзывам сообщества, некоторые блокировщики могут вызывать задержки.",
+    caLabel: "Адрес контракта $WOC",
+    caCopied: "Скопировано!",
+    caCopyAria: "Скопировать адрес контракта",
   },
   auth: {
     enterRealm: "Войти в игровой мир",
