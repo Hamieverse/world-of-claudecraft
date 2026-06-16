@@ -478,6 +478,7 @@ export class Sim {
       respawnSeconds: cfg.respawnSeconds ?? 25,
       autoEquip: cfg.autoEquip ?? false,
       playerName: cfg.playerName ?? 'Adventurer',
+      devCommands: this.devCommands,
     };
     this.rng = new Rng(cfg.seed);
 
@@ -4491,7 +4492,7 @@ export class Sim {
 
     if (this.devCommands) {
       const devHandled = this.handleDevChat(raw, r.meta.entityId);
-      if (devHandled !== null) return devHandled;
+      if (devHandled !== undefined && devHandled !== null) return devHandled;
     }
 
     if (/^\/who(?:\s|$)/i.test(raw)) {

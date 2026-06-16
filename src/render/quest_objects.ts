@@ -132,7 +132,6 @@ function convertMaterial(src: THREE.Material, itemId: string): THREE.Material {
     map: s.map ?? undefined,
     normalMap: s.normalMap ?? undefined,
     roughnessMap: s.roughnessMap ?? undefined,
-    metalnessMap: s.metalnessMap ?? undefined,
     roughness: s.roughness ?? 0.88,
     metalness: Math.min(s.metalness ?? 0, 0.75),
     emissive: ov?.emissive,

@@ -219,6 +219,7 @@ describe('admin api auth', () => {
     vi.mocked(accountDetail).mockResolvedValue({
       id: 9, username: 'badactor', createdAt: '', lastLogin: null, isAdmin: false,
       bannedAt: null, suspendedUntil: null, moderationReason: '',
+      chatMutedUntil: null, chatMuteReason: '',
       playtimeSeconds: 0, characters: [], recentSessions: [],
     });
     vi.mocked(moderationReportsForAccount).mockResolvedValue([]);
@@ -477,6 +478,7 @@ describe('admin api chat filter', () => {
     vi.mocked(accountDetail).mockResolvedValue({
       id: 9, username: 'badactor', createdAt: '', lastLogin: null, isAdmin: false,
       bannedAt: null, suspendedUntil: null, moderationReason: '',
+      chatMutedUntil: null, chatMuteReason: '',
       playtimeSeconds: 0, characters: [], recentSessions: [],
     });
     vi.mocked(moderationReportsForAccount).mockResolvedValue([]);

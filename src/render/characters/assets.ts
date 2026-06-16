@@ -94,7 +94,8 @@ function kaykitAccessoryFor(url: string): string | null {
 
 function findAccessoryNode(root: THREE.Object3D, name: string): THREE.Object3D | null {
   return root.getObjectByName(name)
-    ?? root.getObjectByName(name.replace(/[[\].:/]/g, ''));
+    ?? root.getObjectByName(name.replace(/[[\].:/]/g, ''))
+    ?? null;
 }
 
 function accessoryNodeName(accessory: string, side: 'r' | 'l'): string {
