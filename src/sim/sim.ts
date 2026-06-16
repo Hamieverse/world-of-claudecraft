@@ -2339,6 +2339,7 @@ export class Sim {
         }
         case 'polymorph': {
           if (!target || target.dead) break;
+          target.hp = target.maxHp;
           this.applyAura(target, {
             id: ability.id, name: ability.name, kind: 'polymorph',
             remaining: eff.duration, duration: eff.duration, value: 0,

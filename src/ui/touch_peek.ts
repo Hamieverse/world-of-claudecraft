@@ -11,6 +11,8 @@
 /** Default hold (ms) before a touch press is treated as a tooltip peek. */
 export const TOOLTIP_PEEK_MS = 950;
 
+export type TooltipTriggerKind = 'touch' | 'mouse' | 'focus';
+
 export class TouchPeekGuard {
   private peeked = false;
 
@@ -22,6 +24,11 @@ export class TouchPeekGuard {
   /** The long-press tooltip was shown for the held control. */
   peek(): void {
     this.peeked = true;
+  }
+
+  /** A tooltip became visible; only touch long-press tooltips suppress release clicks. */
+  tooltipShown(kind: TooltipTriggerKind): void {
+    if (kind === 'touch') this.peek();
   }
 
   /**

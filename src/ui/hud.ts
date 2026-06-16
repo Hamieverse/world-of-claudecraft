@@ -929,10 +929,10 @@ export class Hud {
       if (touchTimer !== undefined) window.clearTimeout(touchTimer);
       touchTimer = undefined;
     };
-    const showAt = (x: number, y: number) => {
+    const showAt = (x: number, y: number, trigger: 'touch' | 'mouse' | 'focus') => {
       // Touch-only path: showing the tooltip means the held control is being
       // inspected, so the release click should peek, not fire its action.
-      this.peekGuard.peek();
+      this.peekGuard.tooltipShown(trigger);
       this.tooltipEl.innerHTML = html();
       this.tooltipEl.style.display = 'block';
       const tw = this.tooltipEl.offsetWidth, th = this.tooltipEl.offsetHeight;
@@ -941,11 +941,12 @@ export class Hud {
     };
     const showNearElement = () => {
       const rect = el.getBoundingClientRect();
-      showAt(rect.right, rect.top + rect.height / 2);
+      showAt(rect.right, rect.top + rect.height / 2, 'focus');
     };
     el.addEventListener('mouseenter', () => {
       if (mobile()) return;
-      showNearElement();
+      const rect = el.getBoundingClientRect();
+      showAt(rect.right, rect.top + rect.height / 2, 'mouse');
     });
     el.addEventListener('mousemove', (e) => {
       if (mobile()) return;
@@ -963,7 +964,7 @@ export class Hud {
       this.peekGuard.press();
       this.tooltipEl.style.display = 'none';
       const x = e.clientX, y = e.clientY;
-      touchTimer = window.setTimeout(() => showAt(x, y), TOOLTIP_PEEK_MS);
+      touchTimer = window.setTimeout(() => showAt(x, y, 'touch'), TOOLTIP_PEEK_MS);
     });
     el.addEventListener('pointerup', clearTouchTimer);
     el.addEventListener('pointercancel', clearTouchTimer);
