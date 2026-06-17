@@ -298,6 +298,16 @@ function handleModerationActionClick(e: Event, source: 'account' | 'moderation')
     window.alert(t('alert.noteRequired'));
     return false;
   };
+  // Lift mute / reset strikes: non-destructive, no note/confirm. Available for
+  // any account (incl. admins) so an auto-muted operator can clear it themselves.
+  const chatModBtn = target.closest('button[data-lift-mute], button[data-reset-strikes]') as HTMLButtonElement | null;
+  if (chatModBtn && Number.isFinite(accountId)) {
+    const endpoint = chatModBtn.dataset.liftMute !== undefined ? 'lift-mute' : 'reset-strikes';
+    void apiPost(`/admin/api/moderation/accounts/${accountId}/${endpoint}`, {})
+      .then(() => { if (source === 'account') void refreshOpenAccountDetail(accountId); else void openModerationAccount(accountId); })
+      .catch((err: unknown) => { if (!handleAuthFailure(err)) window.alert(err instanceof Error ? localizeAdminError(err.message) : t('alert.actionFailed')); });
+    return true;
+  }
   const forceRenameBtn = target.closest('button[data-force-rename-character]') as HTMLButtonElement | null;
   if (forceRenameBtn) {
     if (!requireNote()) return true;
@@ -577,9 +587,19 @@ function wireChatFilterEvents(): void {
       .catch((err: unknown) => chatFilterError(err, 'add word'));
   });
 
-  // Remove a word, or save the escalation config.
+  // Remove a word, save the escalation config, or lift/reset an account's chat mute.
   $('chat-filter').addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
+    const chatModBtn = target.closest('button[data-lift-mute], button[data-reset-strikes]') as HTMLButtonElement | null;
+    if (chatModBtn) {
+      const accountId = Number((chatModBtn.closest('[data-action-account-id]') as HTMLElement | null)?.dataset.actionAccountId);
+      if (!Number.isFinite(accountId)) return;
+      const endpoint = chatModBtn.dataset.liftMute !== undefined ? 'lift-mute' : 'reset-strikes';
+      void apiPost(`/admin/api/moderation/accounts/${accountId}/${endpoint}`, {})
+        .then(() => refreshChatFilter())
+        .catch((err: unknown) => chatFilterError(err, 'chat moderation'));
+      return;
+    }
     const del = target.closest('button[data-del-word]') as HTMLButtonElement | null;
     if (del) {
       void apiPost(`/admin/api/chat-filter/words/${Number(del.dataset.delWord)}/delete`, {})

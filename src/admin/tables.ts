@@ -1,8 +1,8 @@
 import { escapeHtml, fmtCopper, fmtDate, fmtDuration, fmtRelative } from './format';
 import { classLabel, zoneLabel, t } from './i18n';
 import type {
-  AccountDetail, AccountRow, CharacterRow, ChatFilterData, ChatModerationDetail, FilterWord,
-  LivePlayer, ModerationAccountDetail, ModerationQueueRow,
+  AccountDetail, AccountRow, CharacterRow, ChatFilterData, ChatModeratedAccount,
+  ChatModerationDetail, FilterWord, LivePlayer, ModerationAccountDetail, ModerationQueueRow,
 } from './types';
 
 // Pure HTML-string renderers for the dashboard tables. All dynamic values go
@@ -119,7 +119,16 @@ export function renderAccountDetail(d: AccountDetail, includeAdminControls = fal
     <div class="account-admin-controls">
       <div class="account-status"><b>${t('detail.status')}</b> <span class="badge">${t('accounts.badgeAdmin')}</span> ${accountStatus}</div>
     </div>` : '';
-  return `<div class="account-detail" data-action-account-id="${d.id}">${adminControls}<div class="detail-grid">
+  // Chat-mute controls are shown for EVERY account (admins included): the chat
+  // filter auto-mutes admins too, and ban/suspend gating must not strand them.
+  const activeChatMute = d.chatMutedUntil !== null && new Date(d.chatMutedUntil).getTime() > Date.now();
+  const chatModControls = includeAdminControls ? `
+    <div class="account-admin-controls chat-mod-controls" data-action-account-id="${d.id}">
+      <div class="account-status"><b>Chat:</b> ${activeChatMute ? `<span class="badge warn">muted until ${fmtDate(d.chatMutedUntil)}</span>` : '<span class="badge">not muted</span>'} &middot; strikes: <b>${d.chatStrikes}</b></div>
+      ${activeChatMute ? '<button data-lift-mute="1">Lift chat mute</button>' : ''}
+      ${d.chatStrikes > 0 ? '<button data-reset-strikes="1">Reset chat strikes</button>' : ''}
+    </div>` : '';
+  return `<div class="account-detail" data-action-account-id="${d.id}">${adminControls}${chatModControls}<div class="detail-grid">
     <div><h4>${t('detail.charactersHeader')}</h4>${chars}</div>
     <div><h4>${t('detail.sessionsHeader', { value: fmtDuration(d.playtimeSeconds) })}</h4>${sessions}</div>
   </div></div>`;
@@ -303,7 +312,29 @@ export function renderChatFilter(data: ChatFilterData): string {
       <div class="panel-title">Hard words <span class="hint">slurs — message blocked + escalating mutes; never shown to anyone, not toggleable</span></div>
       <form class="word-add" data-add-tier="hard"><input placeholder="add a hard word" maxlength="64" /><button>Add</button></form>
       ${renderWordChips(data.hard)}
+    </div>
+    <div class="panel">
+      <div class="panel-title">Chat-moderated accounts <span class="hint">currently muted or carrying strikes — lift or reset here</span></div>
+      ${renderChatModeratedAccounts(data.accounts)}
     </div>`;
+}
+
+function renderChatModeratedAccounts(accounts: ChatModeratedAccount[]): string {
+  if (accounts.length === 0) return '<div class="empty">no muted or striked accounts</div>';
+  const rows = accounts.map((a) => {
+    const muted = a.chatMutedUntil !== null && new Date(a.chatMutedUntil).getTime() > Date.now();
+    const muteCell = muted
+      ? `<span class="badge warn">muted until ${fmtDate(a.chatMutedUntil)}</span>`
+      : '<span class="badge">not muted</span>';
+    const actions = `${muted ? '<button data-lift-mute="1">Lift mute</button>' : ''}${a.chatStrikes > 0 ? ' <button data-reset-strikes="1">Reset strikes</button>' : ''}`;
+    return `<tr data-action-account-id="${a.id}">
+      <td>${escapeHtml(a.username)}${a.isAdmin ? ' <span class="badge">admin</span>' : ''}</td>
+      <td class="num">${a.chatStrikes}</td>
+      <td>${muteCell}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+  return `<table><thead><tr><th>Account</th><th class="num">Strikes</th><th>Mute</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function reasonLabel(reason: string): string {
