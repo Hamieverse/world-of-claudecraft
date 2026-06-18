@@ -122,6 +122,7 @@ export const ZONE2_MOBS: Record<string, MobTemplate> = {
     id: 'mirefen_broodmother', name: 'The Broodmother', minLevel: 10, maxLevel: 10, family: 'spider',
     hpBase: 150, hpPerLevel: 26, dmgBase: 9, dmgPerLevel: 2.4, attackSpeed: 1.8,
     armorPerLevel: 16, moveSpeed: 8, aggroRadius: 14, boss: true,
+    stackPoison: { chance: 0.35, perTick: 3, interval: 2, duration: 12, maxStacks: 5, name: 'Brood Venom', school: 'nature' },
     loot: [
       { copper: 300, chance: 1 },
       { itemId: 'marshstrider_boots', chance: 0.4 },

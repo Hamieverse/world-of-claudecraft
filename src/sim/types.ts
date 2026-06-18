@@ -213,6 +213,12 @@ export interface MobTemplate {
   // refreshing damage-over-time. Reuses the `dot` aura; only the default school
   // differs. Carried by corrupt spellcasters that channel raw arcane energy.
   arcaneRot?: { chance: number; perTick: number; interval: number; duration: number; name: string; school?: string };
+  // On-hit debuff: a *stacking* poison DoT. Unlike `venom` (a single fixed-value
+  // DoT that merely refreshes), each landed swing adds a stack — the per-tick
+  // damage is `perTick * stacks`, ramping up to `maxStacks` — so the longer the
+  // creature stays on its target the worse the venom bites (classic "Deadly
+  // Poison"). Reuses the `dot` aura kind; the shared slot carries the stack count.
+  stackPoison?: { chance: number; perTick: number; interval: number; duration: number; maxStacks: number; name: string; school?: string };
   // On-death mechanic ("Death Throes"): a volatile creature does not detonate
   // the instant it dies. Its corpse destabilizes for `delay` seconds (a
   // telegraph players can run from), then bursts for min..max `school` damage

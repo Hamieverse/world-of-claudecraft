@@ -4279,6 +4279,14 @@ export class Sim {
         sourceId: mob.id, school: (arcaneRot.school as Aura['school']) ?? 'arcane',
       });
     }
+
+    // deadly poison: a landed swing may apply (or add a stack to) a ramping DoT.
+    // Guarded on hostile so a friendly pet (the other mobSwing caller) never
+    // poisons an ally. Per-tick damage scales with the stack count.
+    const stackPoison = MOBS[mob.templateId]?.stackPoison;
+    if (stackPoison && mob.hostile && !target.dead && this.rng.chance(stackPoison.chance)) {
+      this.applyStackPoison(mob, target, stackPoison);
+    }
     // corrosive bite: a landed hit may shred the victim's armor (stacking sunder).
     // Guarded on hostile so a friendly pet (the other mobSwing caller) never debuffs an ally.
     const corrode = MOBS[mob.templateId]?.corrode;
@@ -4589,6 +4597,30 @@ export class Sim {
     if (meta) recalcPlayerStats(target, meta.cls, meta.equipment, meta.talentMods);
     this.emit({ type: 'aura', targetId: target.id, name, gained: true });
     return true;
+  }
+
+  // Apply (or add a stack to) a ramping poison DoT on the victim. One shared
+  // `dot` slot found by id, its per-tick `value` recomputed as perTick*stacks
+  // (bumped up to `maxStacks`) and its timer fully refreshed each application —
+  // so the per-tick damage climbs the longer the creature keeps biting. The dot
+  // tick reads `value` directly, so storing perTick*stacks is what makes it ramp.
+  private applyStackPoison(mob: Entity, target: Entity, sp: NonNullable<MobTemplate['stackPoison']>): void {
+    const id = 'stackpoison_' + mob.templateId;
+    const existing = target.auras.find((a) => a.id === id && a.kind === 'dot');
+    if (existing) {
+      existing.stacks = Math.min(sp.maxStacks, (existing.stacks ?? 1) + 1);
+      existing.value = Math.max(1, Math.round(sp.perTick * existing.stacks));
+      existing.remaining = existing.duration;
+      this.emit({ type: 'aura', targetId: target.id, name: sp.name, gained: true });
+    } else {
+      this.applyAura(target, {
+        id, name: sp.name, kind: 'dot',
+        remaining: sp.duration, duration: sp.duration,
+        value: Math.max(1, Math.round(sp.perTick)),
+        tickInterval: sp.interval, tickTimer: sp.interval, stacks: 1,
+        sourceId: mob.id, school: (sp.school as Aura['school']) ?? 'nature',
+      });
+    }
   }
 
   // Apply (or refresh + stack) a corrosive armor-shred debuff on the victim.
