@@ -16,6 +16,7 @@ import {
   dist2d, xpForLevel, MAX_LEVEL, MELEE_RANGE, MILESTONES, virtualLevel, canPrestige, xpUntilNextPrestige,
 } from '../sim/types';
 import { xpBarView, formatXp } from './xp_bar';
+import { lowHealthVignette } from './low_health';
 import { terrainHeight, WATER_LEVEL, roadDistance, generateDecorations } from '../sim/world';
 import type { Decoration } from '../sim/world';
 import { Meters } from './meters';
@@ -1553,6 +1554,22 @@ export class Hud {
   // Frame update
   // -------------------------------------------------------------------------
 
+  // Pulsing red screen edge that fades in as the player nears death. Driven
+  // from the pure lowHealthVignette() curve; purely presentational (CSS vars on
+  // a fixed overlay), works on every GFX tier since it's DOM, not a post pass.
+  private updateLowHealthVignette(hp: number, maxHp: number): void {
+    const el = document.getElementById('low-health-vignette');
+    if (!el) return;
+    const v = lowHealthVignette(hp, maxHp);
+    if (!v.active) {
+      el.classList.remove('active');
+      return;
+    }
+    el.style.setProperty('--lhv-opacity', v.opacity.toFixed(3));
+    el.style.setProperty('--lhv-pulse', `${v.pulseSeconds.toFixed(3)}s`);
+    el.classList.add('active');
+  }
+
   update(): void {
     const sim = this.sim;
     const p = sim.player;
@@ -1578,6 +1595,7 @@ export class Hud {
     this.setText(this.pfLevelEl, String(p.level));
     this.setTransform(this.pfHpEl, `scaleX(${p.hp / Math.max(1, p.maxHp)})`);
     this.setText(this.pfHpTextEl, `${p.hp} / ${p.maxHp}`);
+    this.updateLowHealthVignette(p.hp, p.maxHp);
     const resFrac = p.resource / Math.max(1, p.maxResource);
     this.setTransform(this.pfResEl, `scaleX(${resFrac})`);
     this.setText(this.pfResTextEl, `${Math.round(p.resource)} / ${p.maxResource}`);

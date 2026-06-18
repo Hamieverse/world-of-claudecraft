@@ -1243,6 +1243,25 @@
     font-size: 38px; font-weight: bold; text-shadow: 0 0 18px #00000088, 2px 2px 6px #000; opacity: 0;
     transition: opacity 1.2s; pointer-events: none; font-family: var(--title-font); letter-spacing: 1px; white-space: nowrap; }
 
+  /* ---------- low-health screen vignette ---------- */
+  /* Pulsing red edge glow that fades in as the player nears death. Opacity and
+     pulse cadence are driven from JS via the --lhv-* custom properties; the
+     element stays hidden (display:none) until .active is set. Sits above the
+     world but below the HUD frames, and never eats pointer events. */
+  #low-health-vignette { position: fixed; inset: 0; display: none; z-index: 4; pointer-events: none;
+    --lhv-opacity: 0; --lhv-pulse: 1.6s;
+    background: radial-gradient(ellipse at center,
+      rgba(120,0,0,0) 42%, rgba(150,0,0,0.35) 74%, rgba(190,0,0,0.85) 100%);
+    animation: lhv-breathe var(--lhv-pulse) ease-in-out infinite; }
+  #low-health-vignette.active { display: block; }
+  @keyframes lhv-breathe {
+    0%, 100% { opacity: calc(var(--lhv-opacity) * 0.55); }
+    50%      { opacity: var(--lhv-opacity); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #low-health-vignette { animation: none; opacity: var(--lhv-opacity); }
+  }
+
   /* ---------- death overlay ---------- */
   #death-overlay { position: absolute; inset: 0; background: radial-gradient(ellipse at center, #40000077 0%, #300000bb 100%);
     display: none; align-items: center; justify-content: center; flex-direction: column; gap: 18px; z-index: 30; }
@@ -5430,6 +5449,7 @@
 
     <div id="error-msg"></div>
     <div id="banner"></div>
+    <div id="low-health-vignette"></div>
 
     <div id="death-overlay">
       <h2 data-i18n="hud.core.deathTitle">You have died.</h2>
