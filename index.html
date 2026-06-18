@@ -4455,6 +4455,46 @@
     max-height: calc(100vh - 92px);
     transform: translateX(-50%);
   }
+  body.mobile-touch.vendor-open #vendor-window,
+  body.mobile-touch.vendor-open #bags {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    bottom: calc(72px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    max-height: none;
+    transform: none;
+    box-sizing: border-box;
+    z-index: 95;
+  }
+  body.mobile-touch.vendor-open #vendor-window {
+    left: max(10px, env(safe-area-inset-left));
+    right: 50vw;
+    display: block;
+    overflow-y: auto;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right-width: 1px;
+  }
+  body.mobile-touch.vendor-open #bags {
+    left: 50vw;
+    right: max(10px, env(safe-area-inset-right));
+    overflow: hidden;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left: 0;
+  }
+  body.mobile-touch.vendor-open #vendor-window .panel-title,
+  body.mobile-touch.vendor-open #bags .panel-title {
+    height: 47px;
+    min-height: 47px;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+    box-sizing: border-box;
+  }
+  body.mobile-touch.vendor-open #vendor-window .panel-title .x-btn {
+    display: none;
+  }
   body.mobile-touch #spellbook,
   body.mobile-touch #options-menu {
     left: 50%;
@@ -5122,6 +5162,7 @@
     margin: 0;
     overflow: visible;
   }
+  body.mobile-touch #charselect-panel #charselect-class-details,
   body.mobile-touch #charselect-panel #online-class-details {
     flex: 1 1 auto;
     width: 100%;
@@ -5131,10 +5172,12 @@
     margin-bottom: 0;
     overflow: visible;
   }
+  body.mobile-touch #charselect-panel #charselect-class-details .class-details-content,
   body.mobile-touch #charselect-panel #online-class-details .class-details-content {
     min-height: 100%;
     height: auto;
   }
+  body.mobile-touch #charselect-panel #charselect-class-details .class-details-grid,
   body.mobile-touch #charselect-panel #online-class-details .class-details-grid {
     display: flex;
     flex-direction: column;

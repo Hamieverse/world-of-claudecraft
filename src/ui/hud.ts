@@ -699,7 +699,10 @@ export class Hud {
       case 'vendor-window': this.closeVendor(); break;
       case 'loot-window': this.closeLoot(); break;
       case 'quest-dialog': this.closeQuestDialog(); break;
-      case 'bags': el.style.display = 'none'; this.hideTooltip(); this.cancelPetFeed(); break;
+      case 'bags':
+        if (this.vendorOpen && document.body.classList.contains('mobile-touch')) this.closeVendor();
+        else { el.style.display = 'none'; this.hideTooltip(); this.cancelPetFeed(); }
+        break;
       case 'talents-window': el.style.display = 'none'; this.talentStage = null; this.hideTooltip(); break;
       case 'emote-editor': this.closeEmoteEditor(); break;
       default: el.style.display = 'none'; this.hideTooltip(); break;
@@ -3610,7 +3613,7 @@ export class Hud {
       row.innerHTML = `${this.itemIcon(item)}<span class="vi-name">${esc(itemName)}${s.count > 1 ? ` x${s.count}` : ''}</span><span class="vi-price">${this.moneyHtml(item.sellValue)}</span>`;
       row.addEventListener('click', () => {
         this.sim.buyBackItem(s.itemId);
-        if ($('#bags').style.display === 'block') this.renderBags();
+        if ($('#bags').style.display !== 'none') this.renderBags();
         this.renderVendor();
       });
       this.attachTooltip(row, () => this.itemTooltip(item) + `<div class="tt-sub">${esc(t('itemUi.tooltip.clickBuyback'))}</div>`);
@@ -3626,11 +3629,17 @@ export class Hud {
   }
 
   closeVendor(): void {
+    const closeMobileBags = document.body.classList.contains('mobile-touch') && $('#bags').style.display !== 'none';
     $('#vendor-window').style.display = 'none';
     this.openVendorNpcId = null;
     document.body.classList.remove('vendor-open'); // bags (if still open) re-centres
     this.hideTooltip();
-    if ($('#bags').style.display !== 'none') this.renderBags();
+    if (closeMobileBags) {
+      $('#bags').style.display = 'none';
+      this.cancelPetFeed();
+    } else if ($('#bags').style.display !== 'none') {
+      this.renderBags();
+    }
   }
 
   get vendorOpen(): boolean {
@@ -3990,7 +3999,15 @@ export class Hud {
     money.className = 'money';
     money.innerHTML = this.moneyHtml(sim.copper);
     el.appendChild(money);
-    el.querySelector('[data-close]')?.addEventListener('click', () => { el.style.display = 'none'; this.hideTooltip(); this.cancelPetFeed(); });
+    el.querySelector('[data-close]')?.addEventListener('click', () => {
+      if (this.vendorOpen && document.body.classList.contains('mobile-touch')) {
+        this.closeVendor();
+        return;
+      }
+      el.style.display = 'none';
+      this.hideTooltip();
+      this.cancelPetFeed();
+    });
   }
 
   private sellBagItem(slot: InvSlot, ev: MouseEvent): void {
