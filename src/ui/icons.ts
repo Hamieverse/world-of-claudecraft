@@ -1071,6 +1071,16 @@ const ABILITY_RECIPES: Record<string, IconRecipe> = {
   thorns: r('nature', 'leafGreen', ['leaf', { p: 'claw_slash', ...BR }]),
   entangling_roots: r('nature', 'leafGreen', ['tendrils']),
   bear_form: r('earth', 'earthBrown', [{ p: 'paw', pal: 'earthBrown' }, { p: 'claw_slash', ...BR }]),
+  travel_form: r('nature', 'leafGreen', [{ p: 'paw', pal: 'leafGreen' }], ['motion']),
+  enrage: r('fury', 'blood', [{ p: 'paw', pal: 'blood' }], ['glow']),
+  bash: r('earth', 'earthBrown', ['paw', { p: 'claw_slash', ...BR }]),
+  faerie_fire: r('nature', 'leafGreen', [{ p: 'gem', pal: 'leafGreen' }], ['sparkle', 'glow']),
+  hibernate: r('arcane', 'silverWhite', [{ p: 'moon', pal: 'silverWhite' }], ['sparkle']),
+  dash: r('nature', 'leafGreen', ['paw', { p: 'claw_slash', ...TR }], ['motion']),
+  pounce: r('nature', 'leafGreen', ['fang', { p: 'claw_slash', ...BR }], ['motion']),
+  insect_swarm: r('nature', 'leafGreen', ['tendrils'], ['sparkle']),
+  tigers_fury: r('fire', 'ember', ['fang'], ['glow']),
+  rip: r('blood', 'blood', ['claw_slash'], ['drips']),
 };
 
 const ITEM_RECIPES: Record<string, IconRecipe> = {

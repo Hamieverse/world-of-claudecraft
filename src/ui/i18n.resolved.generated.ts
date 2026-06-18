@@ -1664,6 +1664,46 @@ export const en: EnTranslations = {
         "name": "Starfire",
         "description": "Calls down a bolt of stellar fire, causing {damage} Arcane damage."
       },
+      "travel_form": {
+        "name": "Travel Form",
+        "description": "Take on a swift travel form, increasing movement speed by 40%. Cannot be used in combat."
+      },
+      "enrage": {
+        "name": "Enrage",
+        "description": "Generates 20 rage instantly. Bear Form only."
+      },
+      "bash": {
+        "name": "Bash",
+        "description": "Stuns the target for 2 sec. Bear Form only."
+      },
+      "faerie_fire": {
+        "name": "Faerie Fire",
+        "description": "Decreases the target's armor by 35 for 40 sec."
+      },
+      "hibernate": {
+        "name": "Hibernate",
+        "description": "Forces the target into a deep sleep for up to 8 sec. Any damage will awaken it."
+      },
+      "dash": {
+        "name": "Dash",
+        "description": "Sprint forward, increasing movement speed by 50% for 15 sec. Wolf Form only."
+      },
+      "pounce": {
+        "name": "Pounce",
+        "description": "A stealth opener that stuns the target for 2 sec. Awards 1 combo point. Wolf Form only."
+      },
+      "insect_swarm": {
+        "name": "Insect Swarm",
+        "description": "The enemy is swarmed by insects, taking {damage} Nature damage over 12 sec."
+      },
+      "tigers_fury": {
+        "name": "Tiger's Fury",
+        "description": "Increases attack power by 40 for 6 sec. Wolf Form only."
+      },
+      "rip": {
+        "name": "Rip",
+        "description": "Finishing move that causes Bleed damage over 12 sec. Consumes combo points. Wolf Form only."
+      },
       "mortal_strike": {
         "name": "Mortal Strike",
         "description": "A vicious strike dealing weapon damage plus {damage}. (Arms signature)"
@@ -5248,6 +5288,46 @@ export const es: EnTranslations = {
       "starfire": {
         "name": "Fuego estelar",
         "description": "Invoca una descarga de fuego estelar que causa {damage} de daño Arcano."
+      },
+      "travel_form": {
+        "name": "Forma de viaje",
+        "description": "Adopta una veloz forma de viaje, aumentando la velocidad de movimiento un 40%. No se puede usar en combate."
+      },
+      "enrage": {
+        "name": "Enfurecer",
+        "description": "Genera 20 de furia al instante. Solo forma de oso."
+      },
+      "bash": {
+        "name": "Mazazo",
+        "description": "Aturde al objetivo durante 2 s. Solo forma de oso."
+      },
+      "faerie_fire": {
+        "name": "Fuego feérico",
+        "description": "Reduce la armadura del objetivo en 35 durante 40 s."
+      },
+      "hibernate": {
+        "name": "Hibernar",
+        "description": "Sume al objetivo en un sueño profundo de hasta 8 s. Cualquier daño lo despertará."
+      },
+      "dash": {
+        "name": "Carrera",
+        "description": "Esprinta hacia delante, aumentando la velocidad de movimiento un 50% durante 15 s. Solo forma felina."
+      },
+      "pounce": {
+        "name": "Abalanzarse",
+        "description": "Apertura desde el sigilo que aturde al objetivo durante 2 s. Otorga 1 punto de combo. Solo forma felina."
+      },
+      "insect_swarm": {
+        "name": "Enjambre de insectos",
+        "description": "Un enjambre de insectos acosa al enemigo, causando {damage} de daño de Naturaleza durante 12 s."
+      },
+      "tigers_fury": {
+        "name": "Furia del tigre",
+        "description": "Aumenta el poder de ataque en 40 durante 6 s. Solo forma felina."
+      },
+      "rip": {
+        "name": "Desgarrar",
+        "description": "Remate que causa daño de sangrado durante 12 s. Consume puntos de combo. Solo forma felina."
       },
       "mortal_strike": {
         "name": "Golpe mortal",
@@ -8834,6 +8914,46 @@ export const es_ES: EnTranslations = {
         "name": "Fuego estelar",
         "description": "Invoca una descarga de fuego estelar que causa {damage} de daño Arcano."
       },
+      "travel_form": {
+        "name": "Forma de viaje",
+        "description": "Adopta una veloz forma de viaje, aumentando la velocidad de movimiento un 40%. No se puede usar en combate."
+      },
+      "enrage": {
+        "name": "Enfurecer",
+        "description": "Genera 20 de furia al instante. Solo forma de oso."
+      },
+      "bash": {
+        "name": "Mazazo",
+        "description": "Aturde al objetivo durante 2 s. Solo forma de oso."
+      },
+      "faerie_fire": {
+        "name": "Fuego feérico",
+        "description": "Reduce la armadura del objetivo en 35 durante 40 s."
+      },
+      "hibernate": {
+        "name": "Hibernar",
+        "description": "Sume al objetivo en un sueño profundo de hasta 8 s. Cualquier daño lo despertará."
+      },
+      "dash": {
+        "name": "Carrera",
+        "description": "Esprinta hacia delante, aumentando la velocidad de movimiento un 50% durante 15 s. Solo forma felina."
+      },
+      "pounce": {
+        "name": "Abalanzarse",
+        "description": "Apertura desde el sigilo que aturde al objetivo durante 2 s. Otorga 1 punto de combo. Solo forma felina."
+      },
+      "insect_swarm": {
+        "name": "Enjambre de insectos",
+        "description": "Un enjambre de insectos acosa al enemigo, causando {damage} de daño de Naturaleza durante 12 s."
+      },
+      "tigers_fury": {
+        "name": "Furia del tigre",
+        "description": "Aumenta el poder de ataque en 40 durante 6 s. Solo forma felina."
+      },
+      "rip": {
+        "name": "Desgarrar",
+        "description": "Remate que causa daño de sangrado durante 12 s. Consume puntos de combo. Solo forma felina."
+      },
       "mortal_strike": {
         "name": "Golpe mortal",
         "description": "Ataque brutal que inflige daño de arma más {damage}. (habilidad distintiva de Armas)"
@@ -12418,6 +12538,46 @@ export const fr_FR: EnTranslations = {
       "starfire": {
         "name": "Feu stellaire",
         "description": "Fait tomber un trait de feu stellaire qui inflige {damage} points de dégâts des Arcanes."
+      },
+      "travel_form": {
+        "name": "Forme de voyage",
+        "description": "Prend une forme de voyage rapide, augmentant la vitesse de déplacement de 40%. Inutilisable en combat."
+      },
+      "enrage": {
+        "name": "Furie",
+        "description": "Génère 20 points de rage instantanément. Forme d'ours uniquement."
+      },
+      "bash": {
+        "name": "Coup de massue",
+        "description": "Étourdit la cible pendant 2 s. Forme d'ours uniquement."
+      },
+      "faerie_fire": {
+        "name": "Feu féerique",
+        "description": "Diminue l'armure de la cible de 35 pendant 40 s."
+      },
+      "hibernate": {
+        "name": "Hibernation",
+        "description": "Plonge la cible dans un sommeil profond pendant 8 s maximum. Tout dégât la réveille."
+      },
+      "dash": {
+        "name": "Sprint",
+        "description": "Bondit en avant, augmentant la vitesse de déplacement de 50% pendant 15 s. Forme de félin uniquement."
+      },
+      "pounce": {
+        "name": "Bondir",
+        "description": "Ouverture furtive qui étourdit la cible pendant 2 s. Confère 1 point de combo. Forme de félin uniquement."
+      },
+      "insect_swarm": {
+        "name": "Nuée d'insectes",
+        "description": "L'ennemi est assailli par une nuée d'insectes, subissant {damage} points de dégâts de Nature sur 12 s."
+      },
+      "tigers_fury": {
+        "name": "Furie du tigre",
+        "description": "Augmente la puissance d'attaque de 40 pendant 6 s. Forme de félin uniquement."
+      },
+      "rip": {
+        "name": "Lacération",
+        "description": "Coup de grâce qui inflige des dégâts de saignement sur 12 s. Consomme les points de combo. Forme de félin uniquement."
       },
       "mortal_strike": {
         "name": "Frappe mortelle",
@@ -16004,6 +16164,46 @@ export const fr_CA: EnTranslations = {
         "name": "Feu stellaire",
         "description": "Fait tomber un trait de feu stellaire qui inflige {damage} points de dégâts des Arcanes."
       },
+      "travel_form": {
+        "name": "Forme de voyage",
+        "description": "Prend une forme de voyage rapide, augmentant la vitesse de déplacement de 40%. Inutilisable en combat."
+      },
+      "enrage": {
+        "name": "Furie",
+        "description": "Génère 20 points de rage instantanément. Forme d'ours uniquement."
+      },
+      "bash": {
+        "name": "Coup de massue",
+        "description": "Étourdit la cible pendant 2 s. Forme d'ours uniquement."
+      },
+      "faerie_fire": {
+        "name": "Feu féerique",
+        "description": "Diminue l'armure de la cible de 35 pendant 40 s."
+      },
+      "hibernate": {
+        "name": "Hibernation",
+        "description": "Plonge la cible dans un sommeil profond pendant 8 s maximum. Tout dégât la réveille."
+      },
+      "dash": {
+        "name": "Sprint",
+        "description": "Bondit en avant, augmentant la vitesse de déplacement de 50% pendant 15 s. Forme de félin uniquement."
+      },
+      "pounce": {
+        "name": "Bondir",
+        "description": "Ouverture furtive qui étourdit la cible pendant 2 s. Confère 1 point de combo. Forme de félin uniquement."
+      },
+      "insect_swarm": {
+        "name": "Nuée d'insectes",
+        "description": "L'ennemi est assailli par une nuée d'insectes, subissant {damage} points de dégâts de Nature sur 12 s."
+      },
+      "tigers_fury": {
+        "name": "Furie du tigre",
+        "description": "Augmente la puissance d'attaque de 40 pendant 6 s. Forme de félin uniquement."
+      },
+      "rip": {
+        "name": "Lacération",
+        "description": "Coup de grâce qui inflige des dégâts de saignement sur 12 s. Consomme les points de combo. Forme de félin uniquement."
+      },
       "mortal_strike": {
         "name": "Frappe mortelle",
         "description": "Frappe vicieuse infligeant les dégâts de l'arme plus {damage}. (signature Armes)"
@@ -19588,6 +19788,46 @@ export const en_CA: EnTranslations = {
       "starfire": {
         "name": "Starfire",
         "description": "Calls down a bolt of stellar fire, causing {damage} Arcane damage."
+      },
+      "travel_form": {
+        "name": "Travel Form",
+        "description": "Take on a swift travel form, increasing movement speed by 40%. Cannot be used in combat."
+      },
+      "enrage": {
+        "name": "Enrage",
+        "description": "Generates 20 rage instantly. Bear Form only."
+      },
+      "bash": {
+        "name": "Bash",
+        "description": "Stuns the target for 2 sec. Bear Form only."
+      },
+      "faerie_fire": {
+        "name": "Faerie Fire",
+        "description": "Decreases the target's armor by 35 for 40 sec."
+      },
+      "hibernate": {
+        "name": "Hibernate",
+        "description": "Forces the target into a deep sleep for up to 8 sec. Any damage will awaken it."
+      },
+      "dash": {
+        "name": "Dash",
+        "description": "Sprint forward, increasing movement speed by 50% for 15 sec. Wolf Form only."
+      },
+      "pounce": {
+        "name": "Pounce",
+        "description": "A stealth opener that stuns the target for 2 sec. Awards 1 combo point. Wolf Form only."
+      },
+      "insect_swarm": {
+        "name": "Insect Swarm",
+        "description": "The enemy is swarmed by insects, taking {damage} Nature damage over 12 sec."
+      },
+      "tigers_fury": {
+        "name": "Tiger's Fury",
+        "description": "Increases attack power by 40 for 6 sec. Wolf Form only."
+      },
+      "rip": {
+        "name": "Rip",
+        "description": "Finishing move that causes Bleed damage over 12 sec. Consumes combo points. Wolf Form only."
       },
       "mortal_strike": {
         "name": "Mortal Strike",
@@ -23174,6 +23414,46 @@ export const it_IT: EnTranslations = {
         "name": "Fuoco Stellare",
         "description": "Richiama un dardo di fuoco stellare, infliggendo {damage} danni Arcani."
       },
+      "travel_form": {
+        "name": "Forma da Viaggio",
+        "description": "Assume una rapida forma da viaggio, aumentando la velocità di movimento del 40%. Non utilizzabile in combattimento."
+      },
+      "enrage": {
+        "name": "Furia incontrollata",
+        "description": "Genera 20 punti ira all'istante. Solo Forma d'Orso."
+      },
+      "bash": {
+        "name": "Frastornare",
+        "description": "Stordisce il bersaglio per 2 sec. Solo Forma d'Orso."
+      },
+      "faerie_fire": {
+        "name": "Fuoco Fatato",
+        "description": "Riduce l'armatura del bersaglio di 35 per 40 sec."
+      },
+      "hibernate": {
+        "name": "Letargo",
+        "description": "Costringe il bersaglio in un sonno profondo per un massimo di 8 sec. Qualsiasi danno lo risveglia."
+      },
+      "dash": {
+        "name": "Scatto",
+        "description": "Scatta in avanti, aumentando la velocità di movimento del 50% per 15 sec. Solo Forma Felina."
+      },
+      "pounce": {
+        "name": "Balzo",
+        "description": "Apertura furtiva che stordisce il bersaglio per 2 sec. Conferisce 1 punto combo. Solo Forma Felina."
+      },
+      "insect_swarm": {
+        "name": "Sciame d'Insetti",
+        "description": "Il nemico è assalito da uno sciame di insetti, subendo {damage} danni da Natura in 12 sec."
+      },
+      "tigers_fury": {
+        "name": "Furia della Tigre",
+        "description": "Aumenta la potenza d'attacco di 40 per 6 sec. Solo Forma Felina."
+      },
+      "rip": {
+        "name": "Squartare",
+        "description": "Mossa finale che infligge danni da sanguinamento in 12 sec. Consuma i punti combo. Solo Forma Felina."
+      },
       "mortal_strike": {
         "name": "Colpo Mortale",
         "description": "Un colpo feroce che infligge danni dell'arma più {damage}. (firma Armi)"
@@ -26758,6 +27038,46 @@ export const de_DE: EnTranslations = {
       "starfire": {
         "name": "Sternenfeuer",
         "description": "Ruft einen Bolzen aus Sternenfeuer herab, der {damage} Arkanschaden verursacht."
+      },
+      "travel_form": {
+        "name": "Reisegestalt",
+        "description": "Nehmt eine flinke Reisegestalt an, was das Lauftempo um 40% erhöht. Im Kampf nicht einsetzbar."
+      },
+      "enrage": {
+        "name": "Wutanfall",
+        "description": "Erzeugt sofort 20 Wut. Nur in Bärengestalt."
+      },
+      "bash": {
+        "name": "Knüppeln",
+        "description": "Betäubt das Ziel 2 Sek. lang. Nur in Bärengestalt."
+      },
+      "faerie_fire": {
+        "name": "Feenfeuer",
+        "description": "Verringert die Rüstung des Ziels 40 Sek. lang um 35."
+      },
+      "hibernate": {
+        "name": "Winterschlaf",
+        "description": "Versetzt das Ziel bis zu 8 Sek. in tiefen Schlaf. Jeglicher Schaden weckt es auf."
+      },
+      "dash": {
+        "name": "Sprint",
+        "description": "Sprintet vorwärts und erhöht das Lauftempo 15 Sek. lang um 50%. Nur in Katzengestalt."
+      },
+      "pounce": {
+        "name": "Anspringen",
+        "description": "Ein Eröffnungsangriff aus der Verstohlenheit, der das Ziel 2 Sek. lang betäubt. Gewährt 1 Combopunkt. Nur in Katzengestalt."
+      },
+      "insect_swarm": {
+        "name": "Insektenschwarm",
+        "description": "Der Gegner wird von Insekten umschwärmt und erleidet {damage} Naturschaden über 12 Sek."
+      },
+      "tigers_fury": {
+        "name": "Zorn des Tigers",
+        "description": "Erhöht die Angriffskraft 6 Sek. lang um 40. Nur in Katzengestalt."
+      },
+      "rip": {
+        "name": "Zerfetzen",
+        "description": "Finishing-Move, der über 12 Sek. Blutungsschaden verursacht. Verbraucht Combopunkte. Nur in Katzengestalt."
       },
       "mortal_strike": {
         "name": "Tödlicher Stoß",
@@ -30344,6 +30664,46 @@ export const zh_CN: EnTranslations = {
         "name": "星火术",
         "description": "召下一道星辰之火，造成 {damage} 点奥术伤害。"
       },
+      "travel_form": {
+        "name": "旅行形态",
+        "description": "化为迅捷的旅行形态，使移动速度提高 40%。无法在战斗中使用。"
+      },
+      "enrage": {
+        "name": "激怒",
+        "description": "立即生成 20 点怒气。仅限熊形态。"
+      },
+      "bash": {
+        "name": "重击",
+        "description": "昏迷目标 2 秒。仅限熊形态。"
+      },
+      "faerie_fire": {
+        "name": "精灵之火",
+        "description": "使目标的护甲降低 35，持续 40 秒。"
+      },
+      "hibernate": {
+        "name": "休眠",
+        "description": "迫使目标陷入深度睡眠，最多持续 8 秒。任何伤害都会将其唤醒。"
+      },
+      "dash": {
+        "name": "急奔",
+        "description": "向前冲刺，使移动速度提高 50%，持续 15 秒。仅限猎豹形态。"
+      },
+      "pounce": {
+        "name": "扑击",
+        "description": "一个潜行开场技，昏迷目标 2 秒。奖励 1 个连击点。仅限猎豹形态。"
+      },
+      "insect_swarm": {
+        "name": "虫群",
+        "description": "敌人被虫群侵袭，在 12 秒内受到 {damage} 点自然伤害。"
+      },
+      "tigers_fury": {
+        "name": "猛虎之怒",
+        "description": "使攻击强度提高 40，持续 6 秒。仅限猎豹形态。"
+      },
+      "rip": {
+        "name": "割裂",
+        "description": "终结技，在 12 秒内造成流血伤害。消耗连击点。仅限猎豹形态。"
+      },
       "mortal_strike": {
         "name": "致死打击",
         "description": "凶狠打击，造成武器伤害外加 {damage} 点伤害。（武器专精标志技能）"
@@ -33928,6 +34288,46 @@ export const zh_TW: EnTranslations = {
       "starfire": {
         "name": "星火術",
         "description": "召下一道星辰之火，造成 {damage} 點秘法傷害。"
+      },
+      "travel_form": {
+        "name": "旅行形態",
+        "description": "化為迅捷的旅行形態，使移動速度提高 40%。無法在戰鬥中使用。"
+      },
+      "enrage": {
+        "name": "激怒",
+        "description": "立即生成 20 點怒氣。僅限熊形態。"
+      },
+      "bash": {
+        "name": "重擊",
+        "description": "昏迷目標 2 秒。僅限熊形態。"
+      },
+      "faerie_fire": {
+        "name": "精靈之火",
+        "description": "使目標的護甲降低 35，持續 40 秒。"
+      },
+      "hibernate": {
+        "name": "休眠",
+        "description": "迫使目標陷入深度睡眠，最多持續 8 秒。任何傷害都會將其喚醒。"
+      },
+      "dash": {
+        "name": "急奔",
+        "description": "向前衝刺，使移動速度提高 50%，持續 15 秒。僅限獵豹形態。"
+      },
+      "pounce": {
+        "name": "撲擊",
+        "description": "一個潛行開場技，昏迷目標 2 秒。獎勵 1 個連擊點。僅限獵豹形態。"
+      },
+      "insect_swarm": {
+        "name": "蟲群",
+        "description": "敵人被蟲群侵襲，在 12 秒內受到 {damage} 點自然傷害。"
+      },
+      "tigers_fury": {
+        "name": "猛虎之怒",
+        "description": "使攻擊強度提高 40，持續 6 秒。僅限獵豹形態。"
+      },
+      "rip": {
+        "name": "割裂",
+        "description": "終結技，在 12 秒內造成流血傷害。消耗連擊點。僅限獵豹形態。"
       },
       "mortal_strike": {
         "name": "致死打擊",
@@ -37514,6 +37914,46 @@ export const ko_KR: EnTranslations = {
         "name": "별빛 화살",
         "description": "별의 불꽃을 불러 내려 {damage}의 비전 피해를 입힙니다."
       },
+      "travel_form": {
+        "name": "여행 형태",
+        "description": "날렵한 여행 형태로 변신하여 이동 속도를 40% 증가시킵니다. 전투 중에는 사용할 수 없습니다."
+      },
+      "enrage": {
+        "name": "격노",
+        "description": "즉시 분노 20을 생성합니다. 곰 변신 전용."
+      },
+      "bash": {
+        "name": "곤봉 세례",
+        "description": "대상을 2초 동안 기절시킵니다. 곰 변신 전용."
+      },
+      "faerie_fire": {
+        "name": "요정의 불꽃",
+        "description": "대상의 방어도를 40초 동안 35만큼 감소시킵니다."
+      },
+      "hibernate": {
+        "name": "동면",
+        "description": "대상을 최대 8초 동안 깊은 잠에 빠뜨립니다. 피해를 입으면 깨어납니다."
+      },
+      "dash": {
+        "name": "질주",
+        "description": "앞으로 돌진하여 이동 속도를 15초 동안 50% 증가시킵니다. 표범 변신 전용."
+      },
+      "pounce": {
+        "name": "덮치기",
+        "description": "은신 상태에서 사용하는 시작 공격으로 대상을 2초 동안 기절시킵니다. 연계 점수 1점을 얻습니다. 표범 변신 전용."
+      },
+      "insect_swarm": {
+        "name": "곤충 떼",
+        "description": "적이 곤충 떼에 휩싸여 12초에 걸쳐 {damage}의 자연 피해를 입습니다."
+      },
+      "tigers_fury": {
+        "name": "호랑이의 분노",
+        "description": "공격력을 6초 동안 40만큼 증가시킵니다. 표범 변신 전용."
+      },
+      "rip": {
+        "name": "찢기",
+        "description": "12초에 걸쳐 출혈 피해를 입히는 결정타입니다. 연계 점수를 소모합니다. 표범 변신 전용."
+      },
       "mortal_strike": {
         "name": "죽음의 일격",
         "description": "잔혹한 일격으로 무기 피해에 {damage}의 피해를 더합니다. (무기 특화 대표 기술)"
@@ -41098,6 +41538,46 @@ export const ja_JP: EnTranslations = {
       "starfire": {
         "name": "スターファイア",
         "description": "星の炎を呼び下ろし、{damage} の秘術ダメージを与えます。"
+      },
+      "travel_form": {
+        "name": "トラベルフォーム",
+        "description": "素早い移動形態になり、移動速度を40%上昇させます。戦闘中は使用できません。"
+      },
+      "enrage": {
+        "name": "激怒",
+        "description": "即座にレイジを20生成します。ベアフォーム専用。"
+      },
+      "bash": {
+        "name": "殴打",
+        "description": "対象を2秒間スタンさせます。ベアフォーム専用。"
+      },
+      "faerie_fire": {
+        "name": "フェアリーファイア",
+        "description": "対象の防御力を40秒間35低下させます。"
+      },
+      "hibernate": {
+        "name": "ハイバネート",
+        "description": "対象を最大8秒間深い眠りに落とします。ダメージを受けると目を覚まします。"
+      },
+      "dash": {
+        "name": "ダッシュ",
+        "description": "前方へ駆け出し、移動速度を15秒間50%上昇させます。キャットフォーム専用。"
+      },
+      "pounce": {
+        "name": "パウンス",
+        "description": "隠密状態から放つ先制攻撃で、対象を2秒間スタンさせます。コンボポイントを1獲得します。キャットフォーム専用。"
+      },
+      "insect_swarm": {
+        "name": "インセクトスウォーム",
+        "description": "敵が虫の群れに襲われ、12秒かけて{damage}の自然ダメージを受けます。"
+      },
+      "tigers_fury": {
+        "name": "タイガーフューリー",
+        "description": "攻撃力を6秒間40上昇させます。キャットフォーム専用。"
+      },
+      "rip": {
+        "name": "リップ",
+        "description": "12秒かけて出血ダメージを与えるフィニッシュムーブです。コンボポイントを消費します。キャットフォーム専用。"
       },
       "mortal_strike": {
         "name": "致死打撃",
@@ -44684,6 +45164,46 @@ export const pt_BR: EnTranslations = {
         "name": "Fogo Estelar",
         "description": "Invoca um raio de fogo estelar, causando {damage} de dano Arcano."
       },
+      "travel_form": {
+        "name": "Forma de Viagem",
+        "description": "Assume uma rápida forma de viagem, aumentando a velocidade de movimento em 40%. Não pode ser usada em combate."
+      },
+      "enrage": {
+        "name": "Enfurecer",
+        "description": "Gera 20 de fúria instantaneamente. Apenas Forma de Urso."
+      },
+      "bash": {
+        "name": "Pancada",
+        "description": "Atordoa o alvo por 2 s. Apenas Forma de Urso."
+      },
+      "faerie_fire": {
+        "name": "Fogo Feérico",
+        "description": "Reduz a armadura do alvo em 35 por 40 s."
+      },
+      "hibernate": {
+        "name": "Hibernar",
+        "description": "Força o alvo a um sono profundo por até 8 s. Qualquer dano o desperta."
+      },
+      "dash": {
+        "name": "Corrida",
+        "description": "Dispara para a frente, aumentando a velocidade de movimento em 50% por 15 s. Apenas Forma Felina."
+      },
+      "pounce": {
+        "name": "Bote",
+        "description": "Abertura furtiva que atordoa o alvo por 2 s. Concede 1 ponto de combo. Apenas Forma Felina."
+      },
+      "insect_swarm": {
+        "name": "Enxame de Insetos",
+        "description": "O inimigo é atacado por um enxame de insetos, sofrendo {damage} de dano de Natureza ao longo de 12 s."
+      },
+      "tigers_fury": {
+        "name": "Fúria do Tigre",
+        "description": "Aumenta o poder de ataque em 40 por 6 s. Apenas Forma Felina."
+      },
+      "rip": {
+        "name": "Rasgar",
+        "description": "Golpe final que causa dano de sangramento ao longo de 12 s. Consome pontos de combo. Apenas Forma Felina."
+      },
       "mortal_strike": {
         "name": "Golpe Mortal",
         "description": "Um golpe cruel que causa dano da arma mais {damage}. (assinatura de Armas)"
@@ -48268,6 +48788,46 @@ export const ru_RU: EnTranslations = {
       "starfire": {
         "name": "Звездный огонь",
         "description": "Обрушивает вспышку звездного огня, нанося {damage} ед. урона от тайной магии."
+      },
+      "travel_form": {
+        "name": "Походная форма",
+        "description": "Принимает быструю походную форму, повышая скорость передвижения на 40%. Нельзя использовать в бою."
+      },
+      "enrage": {
+        "name": "Озлобление",
+        "description": "Мгновенно генерирует 20 ед. ярости. Только в облике медведя."
+      },
+      "bash": {
+        "name": "Ошеломление",
+        "description": "Оглушает цель на 2 сек. Только в облике медведя."
+      },
+      "faerie_fire": {
+        "name": "Колдовской огонь",
+        "description": "Снижает броню цели на 35 на 40 сек."
+      },
+      "hibernate": {
+        "name": "Спячка",
+        "description": "Погружает цель в глубокий сон на срок до 8 сек. Любой урон пробуждает ее."
+      },
+      "dash": {
+        "name": "Рывок",
+        "description": "Рывок вперед, повышающий скорость передвижения на 50% на 15 сек. Только в облике кошки."
+      },
+      "pounce": {
+        "name": "Прыжок",
+        "description": "Открывающая атака из скрытности, оглушающая цель на 2 сек. Дает 1 прием серии. Только в облике кошки."
+      },
+      "insect_swarm": {
+        "name": "Рой насекомых",
+        "description": "Враг атакован роем насекомых и получает {damage} ед. урона от сил Природы в течение 12 сек."
+      },
+      "tigers_fury": {
+        "name": "Ярость тигра",
+        "description": "Повышает силу атаки на 40 на 6 сек. Только в облике кошки."
+      },
+      "rip": {
+        "name": "Разрывание",
+        "description": "Завершающий прием, наносящий урон от кровотечения в течение 12 сек. Расходует приемы серии. Только в облике кошки."
       },
       "mortal_strike": {
         "name": "Смертельный удар",
@@ -51946,6 +52506,46 @@ export const en_XA: EnTranslations = {
       "starfire": {
         "name": "[Šţáŕƒíŕé]",
         "description": "[Çáļļš ðóŵñ á ƀóļţ óƒ šţéļļáŕ ƒíŕé, çáúšíñĝ {damage} Áŕçáñé ðáɱáĝé.]"
+      },
+      "travel_form": {
+        "name": "[Ţŕáʋéļ Ƒóŕɱ]",
+        "description": "[Ţáķé óñ á šŵíƒţ ţŕáʋéļ ƒóŕɱ, íñçŕéášíñĝ ɱóʋéɱéñţ šþééð ƀý 40%. Çáññóţ ƀé úšéð íñ çóɱƀáţ.]"
+      },
+      "enrage": {
+        "name": "[Éñŕáĝé]",
+        "description": "[Ĝéñéŕáţéš 20 ŕáĝé íñšţáñţļý. Ɓéáŕ Ƒóŕɱ óñļý.]"
+      },
+      "bash": {
+        "name": "[Ɓášĥ]",
+        "description": "[Šţúñš ţĥé ţáŕĝéţ ƒóŕ 2 šéç. Ɓéáŕ Ƒóŕɱ óñļý.]"
+      },
+      "faerie_fire": {
+        "name": "[Ƒáéŕíé Ƒíŕé]",
+        "description": "[Ðéçŕéášéš ţĥé ţáŕĝéţ'š áŕɱóŕ ƀý 35 ƒóŕ 40 šéç.]"
+      },
+      "hibernate": {
+        "name": "[Ĥíƀéŕñáţé]",
+        "description": "[Ƒóŕçéš ţĥé ţáŕĝéţ íñţó á ðééþ šļééþ ƒóŕ úþ ţó 8 šéç. Áñý ðáɱáĝé ŵíļļ áŵáķéñ íţ.]"
+      },
+      "dash": {
+        "name": "[Ðášĥ]",
+        "description": "[Šþŕíñţ ƒóŕŵáŕð, íñçŕéášíñĝ ɱóʋéɱéñţ šþééð ƀý 50% ƒóŕ 15 šéç. Ŵóļƒ Ƒóŕɱ óñļý.]"
+      },
+      "pounce": {
+        "name": "[Þóúñçé]",
+        "description": "[Á šţéáļţĥ óþéñéŕ ţĥáţ šţúñš ţĥé ţáŕĝéţ ƒóŕ 2 šéç. Áŵáŕðš 1 çóɱƀó þóíñţ. Ŵóļƒ Ƒóŕɱ óñļý.]"
+      },
+      "insect_swarm": {
+        "name": "[Íñšéçţ Šŵáŕɱ]",
+        "description": "[Ţĥé éñéɱý íš šŵáŕɱéð ƀý íñšéçţš, ţáķíñĝ {damage} Ñáţúŕé ðáɱáĝé óʋéŕ 12 šéç.]"
+      },
+      "tigers_fury": {
+        "name": "[Ţíĝéŕ'š Ƒúŕý]",
+        "description": "[Íñçŕéášéš áţţáçķ þóŵéŕ ƀý 40 ƒóŕ 6 šéç. Ŵóļƒ Ƒóŕɱ óñļý.]"
+      },
+      "rip": {
+        "name": "[Ŕíþ]",
+        "description": "[Ƒíñíšĥíñĝ ɱóʋé ţĥáţ çáúšéš Ɓļééð ðáɱáĝé óʋéŕ 12 šéç. Çóñšúɱéš çóɱƀó þóíñţš. Ŵóļƒ Ƒóŕɱ óñļý.]"
       },
       "mortal_strike": {
         "name": "[Ɱóŕţáļ Šţŕíķé]",

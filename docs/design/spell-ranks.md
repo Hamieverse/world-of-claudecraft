@@ -340,6 +340,21 @@
 | `barkskin` | 16 | 30 | inst, 60cd, offGcd | selfBuff buff_armor +150, 15s |
 | `starfire` | 18 | 80 | 3.0s | directDamage 60–74 |
 
+**NEW — kit completion (all reuse existing effect types; zero new sim work):**
+
+| Ability | Learn | Cost | Cast/CD | Form | Effects |
+|---|---|---|---|---|---|
+| `travel_form` | 16 | 30 | inst | — (OOC) | selfBuff buff_speed +40%, 60min |
+| `enrage` | 16 | 0 | inst, 60cd, offGcd | Bear | gainResource +20 rage |
+| `bash` | 16 | 10 | inst, 60cd | Bear | stun 2s |
+| `faerie_fire` | 18 | 30 | inst | — | sunder armor −35 (1 stack), 40s |
+| `hibernate` | 18 | 50 | 1.5s | — | incapacitate 8s (breaks on damage) |
+| `dash` | 18 | 0 | inst, 60cd, offGcd | Cat | selfBuff buff_speed +50%, 15s |
+| `pounce` | 18 | 50 | inst | Cat (stealth) | stun 2s + 1 combo |
+| `insect_swarm` | 20 | 45 | inst | — | dot 48/12s (4×12) Nature |
+| `tigers_fury` | 20 | 30 | inst | Cat | selfBuff buff_ap +40, 6s |
+| `rip` | 20 | 30 | inst | Cat | dot 60/12s finisher (spendsCombo) |
+
 **Sanity** — L14: Moonfire R2 open (19+24) + 6× Wrath R3 (avg 41.5 → 249) ≈ 292 in ~7 casts ✓. L20: Wrath R4 avg 65.5 → 400/65.5 ≈ 6.1 casts (Starfire/Moonfire R3 trims to ~5) ✓.
 
 ---
