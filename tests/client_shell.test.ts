@@ -27,12 +27,14 @@ describe('client HTML shell', () => {
 
     expect(templateHtml).toContain('id="ui"');
     expect(templateHtml).toContain('Release Spirit');
-    expect(templateHtml).toContain('Combat Log');
+    // chat tabs (Chat / Combat Log / channels) are rendered into #chatlog-tabs
+    // by the HUD, so we assert on the container rather than a static label
+    expect(templateHtml).toContain('id="chatlog-tabs"');
     expect(templateHtml).toContain('id="chat-input"');
 
     expect(liveHtml).not.toContain('id="ui"');
     expect(liveHtml).not.toContain('Release Spirit');
-    expect(liveHtml).not.toContain('Combat Log');
+    expect(liveHtml).not.toContain('id="chatlog-tabs"');
     expect(liveHtml).not.toContain('id="chat-input"');
   });
 
@@ -54,6 +56,12 @@ describe('client HTML shell', () => {
     expect(html).toContain('id="mobile-extra-controls"');
     expect(html).toContain('id="mobile-quest"');
     expect(html).toContain('aria-label="Quest Log"');
+  });
+
+  it('keeps the game menu free of duplicate and dev-only entries', () => {
+    const interfaceEntries = hudTs.match(/add\(t\('hud\.options\.interface'\), \(\) => goto\('interface'\)\);/g) ?? [];
+    expect(interfaceEntries).toHaveLength(1);
+    expect(hudTs).not.toContain('Skin Select (dev)');
   });
 
   it('only displays mobile touch controls after the game is active', () => {
@@ -151,8 +159,28 @@ describe('client HTML shell', () => {
     expect(html).toContain('padding-top: calc(var(--spacing-sm) + env(safe-area-inset-top));');
     expect(html).toContain('padding-right: max(var(--spacing-md), env(safe-area-inset-right));');
     expect(html).toContain('body.mobile-touch #homepage-views-container {\n    padding-top: var(--spacing-lg);\n    padding-right: max(var(--spacing-md), env(safe-area-inset-right));');
+    expect(html).toContain('body.mobile-touch .header-actions {\n    width: 100%;\n    display: flex;\n    flex-direction: column;\n    align-items: center;');
+    expect(html).toContain('body.mobile-touch .footer-lang-row {\n    width: 100%;\n    flex-direction: column;\n    align-items: center;');
     expect(html).not.toContain('body.mobile-touch .homepage-header {\n    display: flex;\n    position: relative;');
     expect(mainTs).not.toContain("visualViewport?.addEventListener('scroll', syncAppViewport)");
+  });
+
+  it('places news release metadata below the heading on mobile', () => {
+    expect(mainTs).toContain('<h3 class="news-item-title">${title}</h3><div class="news-item-meta">${tag}${badge}${when}</div></div>');
+    expect(html).toContain('body.mobile-touch .news-item-head {\n    flex-direction: column;\n    align-items: flex-start;');
+    expect(html).toContain('body.mobile-touch .news-item-meta {\n    width: 100%;\n    margin-left: 0;');
+    expect(html).toContain('overflow-wrap: break-word;\n    word-break: normal;');
+    expect(html).toContain('body.mobile-touch .news-body {\n    text-align: left;');
+    expect(html).toContain('body.mobile-touch .news-body ul {\n    list-style: none;\n    padding-left: 0;');
+  });
+
+  it('renders the high scores leaderboard responsively on mobile', () => {
+    expect(mainTs).toContain('<span class="hs-realm" data-label="${esc(realmLabel)}">${esc(r.realm ?? \'\')}</span>');
+    expect(mainTs).toContain('<span class="hs-xp" data-label="${esc(lifetimeXpLabel)}">${formatXp(r.lifetimeXp)}</span>');
+    expect(html).toContain('body.mobile-touch .hs-head {\n    display: none;');
+    expect(html).toContain('body.mobile-touch .hs-row {\n    grid-template-columns: 38px minmax(0, 1fr);');
+    expect(html).toContain('grid-template-areas:\n      "rank name"\n      "rank realm"\n      "rank lvl"\n      "rank vlvl"\n      "rank xp";');
+    expect(html).toContain('body.mobile-touch .hs-realm::before,\n  body.mobile-touch .hs-lvl::before,\n  body.mobile-touch .hs-vlvl::before,\n  body.mobile-touch .hs-xp::before {\n    content: attr(data-label);');
   });
 
   it('stacks selected character details on mobile', () => {

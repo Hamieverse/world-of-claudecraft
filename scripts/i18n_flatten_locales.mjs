@@ -1,6 +1,6 @@
 // One-time migration: convert the 13 non-English locale files under
 // src/ui/i18n.locales/ from nested ": typeof en" objects into FLAT dotted-key
-// overlays (`Record<string, string>`). `en` (src/ui/i18n.en.ts) stays nested and
+// overlays (`Record<string, string>`). `en` (src/ui/i18n.catalog) stays nested and
 // authoritative; the island files (world_entity_i18n.ts, talent_i18n.ts) are left
 // nested for now. The build (scripts/i18n_build.mjs) unflattens each overlay,
 // overlays it onto nested `en`, and emits the byte-identical dense resolved table.
@@ -28,7 +28,7 @@ import { flatten } from './i18n_flatten.mjs';
 
 const root = process.cwd();
 
-// The 13 non-English locales. `en` stays nested in src/ui/i18n.en.ts.
+// The 13 non-English locales. `en` stays nested in src/ui/i18n.catalog.
 const LOCALES = [
   'es', 'es_ES', 'fr_FR', 'fr_CA', 'en_CA', 'it_IT', 'de_DE',
   'zh_CN', 'zh_TW', 'ko_KR', 'ja_JP', 'pt_BR', 'ru_RU',
@@ -45,7 +45,7 @@ function localePath(lang) {
 // which is the intended fail-loud, not a re-run path.
 async function loadSources() {
   const stub = [
-    `export { en } from './src/ui/i18n.en';`,
+    `export { en } from './src/ui/i18n.catalog';`,
     ...LOCALES.map((lang) => `export { ${lang} } from './src/ui/i18n.locales/${lang}';`),
   ].join('\n');
   const build = await esbuild.build({
@@ -64,7 +64,7 @@ function header(lang) {
   return [
     `// Flat dotted-key translation overlay for "${lang}".`,
     '//',
-    '// One key per leaf of the authoritative nested `en` (src/ui/i18n.en.ts), keys',
+    '// One key per leaf of the authoritative nested `en` (src/ui/i18n.catalog), keys',
     "// in `en`'s leaf order. This is the translator-edited source: edit a value to",
     '// translate that key. The build (scripts/i18n_build.mjs) unflattens this map and',
     '// overlays it onto nested `en` to produce the dense resolved table; any key here',

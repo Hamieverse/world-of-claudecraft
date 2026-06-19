@@ -1,7 +1,7 @@
 import { apiGet, apiLogin, apiPost, clearSession, getAdminName, getToken, ApiError } from './api';
 import { barChart, chartPanel } from './charts';
 import { escapeHtml, fmtBytes, fmtDuration } from './format';
-import { classLabel, t, localizeAdminError } from './i18n';
+import { classLabel, t, localizeAdminError, ensureAdminLocaleLoaded, adminLanguage } from './i18n';
 import {
   renderAccountDetail, renderAccountsTable, renderCharactersTable, renderChatFilter,
   renderModerationDetail, renderModerationQueue, renderOnlineTable, renderPager,
@@ -639,10 +639,16 @@ function localizeStatic(): void {
   });
 }
 
-localizeStatic();
-wireEvents();
-if (getToken()) {
-  void showApp();
-} else {
-  showLogin();
-}
+// Async locale loader (parity seam): await the active locale before painting the static
+// admin UI. Admin keeps every locale static, so this resolves instantly; the await mirrors
+// the game client's bootstrap shape without flipping admin to lazy.
+void (async () => {
+  await ensureAdminLocaleLoaded(adminLanguage());
+  localizeStatic();
+  wireEvents();
+  if (getToken()) {
+    void showApp();
+  } else {
+    showLogin();
+  }
+})();

@@ -7,6 +7,8 @@ import { MobileControls, PHONE_TOUCH_QUERY, isPhoneTouchDevice } from './game/mo
 import { Hud } from './ui/hud';
 import { audio } from './game/audio';
 import { music } from './game/music';
+import { voice } from './game/voice';
+import { sfx } from './game/sfx';
 import { activePvpOpponentIds, handlePickedEntity, hoverCursorKind, isAttackableEntity } from './game/interactions';
 import { clickMoveShouldCancel, clickMoveShouldWalk, clickMoveStep, distance2d, latencyAdjustedStopDistance, stepAngleToward } from './game/click_move';
 import { Api, ClientWorld, CharacterSummary, type ReleaseEntry } from './net/online';
@@ -22,7 +24,7 @@ import { DT, INTERACT_RANGE, MELEE_RANGE, PlayerClass, RUN_SPEED, dist2d } from 
 import { togglePasswordVisibility, syncInputAriaState, validateForm, handleKeyboardActivation, validateCharacterName } from './ui/auth_utils';
 import { CLASSES, ABILITIES } from './sim/content/classes';
 import { iconDataUrl } from './ui/icons';
-import { formatDateTime, formatNumber, getLanguage, isSupportedLanguage, languageTag, setLanguage, t, type SupportedLanguage, type TranslationKey } from './ui/i18n';
+import { ensureLocaleLoaded, formatDateTime, formatNumber, getLanguage, isLocaleResident, isSupportedLanguage, languageTag, setLanguage, t, type SupportedLanguage, type TranslationKey } from './ui/i18n';
 import { tServer } from './ui/server_i18n';
 import { tEntity } from './ui/entity_i18n';
 import { hydrateIcons } from './ui/ui_icons';
@@ -539,6 +541,17 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   // Paint the loading screen before anything can block — assetsReady may resolve
   // immediately when assets are already cached, and the scene build is synchronous.
   await nextPaint();
+  // Lazy locale flip: fetch the active locale's chunk and make it resident before the HUD
+  // renders (mountGameUi -> translatePage fans out hundreds of t() calls). It sits behind the
+  // loading screen (already painted above), so a stored non-en visitor never sees an English
+  // flash. This is now a REAL per-locale network request, so guard it: startGame is
+  // void-invoked (see the call sites) with no .catch, and English is always resident, so a
+  // failed fetch must fall back to English and keep booting rather than reject unhandled.
+  try {
+    await ensureLocaleLoaded(getLanguage());
+  } catch {
+    // Soft fallback: English is statically resident; boot in English (the picker can retry).
+  }
   try {
     await assetsReady((done, total) => setLoadingProgress(done, total));
   } catch (err) {
@@ -561,6 +574,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   const perf = createPerfMonitor(null);
   try {
     renderer = new Renderer(world, canvas, nameplates);
+    renderer.setAudioSink(sfx);
     perf.setRenderer(renderer);
     hud = new Hud(world, renderer, keybinds);
     perf.setHud(hud);
@@ -571,6 +585,9 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     fatalOverlay(t('loading.rendererFailed', { error: technicalErrorMessage(err) }));
     return;
   }
+
+  // Offline only: expose the dev "2v2 Fiesta vs Bots" practice toggle to the HUD.
+  if (offlineSim) hud.setFiestaPracticeHook(() => offlineSim.startFiestaPractice());
 
   const chatInput = $('#chat-input') as unknown as HTMLInputElement;
   const clickMoveMarker = $('#click-move-marker') as HTMLDivElement;
@@ -588,14 +605,22 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     recoverFromMobileKeyboard();
   };
   function openChat(): void {
+    // reflect the active chat-channel tab in the placeholder (e.g. "Message World")
+    chatInput.placeholder = hud.activeChatPlaceholder();
     chatInput.style.display = 'block';
     chatInput.focus();
   }
   chatInput.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') {
-      const text = chatInput.value.trim();
+      // the active channel tab supplies the send prefix, so plain text goes to
+      // that channel without the player retyping "/world" etc.
+      const raw = chatInput.value;
+      const text = hud.composeChatSend(raw);
       if (text) world.chat(text);
+      // a typed "/join world"/"/leave lfg" opens or closes its channel tab too,
+      // mirroring the "+" menu (without hijacking the active send channel)
+      hud.syncChatTabsForInput(raw);
       closeChat();
     } else if (e.key === 'Escape') {
       closeChat();
@@ -664,11 +689,21 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
       music.setEnabled(!music.enabled);
       return music.enabled;
     },
+    onRecenterCamera: () => input.recenterCameraBehind(world.player.facing),
   });
   mobileControls.start();
   // reflect the current music state on the touch toggle (it may already be off
   // from a prior session, persisted in localStorage)
   document.getElementById('mobile-music')?.classList.toggle('mm-muted', !music.enabled);
+
+  // Optional FPS readout (settings: showFps). Exponentially-smoothed so the
+  // number is readable rather than flickering every frame; throttled to ~4 Hz.
+  // Declared here (before applySetting + the startup apply loop) so toggling the
+  // setting on boot doesn't hit the const's temporal dead zone.
+  const fpsOverlay = $('#fps-overlay') as HTMLDivElement;
+  let fpsEnabled = false;
+  let fpsSmoothed = 60;
+  let fpsLastPaintMs = 0;
 
   // apply a setting to its live subsystem (also used to apply all on startup)
   function syncClickMoveInput(): void {
@@ -692,6 +727,10 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
       document.body.classList.toggle('mobile-left-handed', v);
       return;
     }
+    if (key === 'touchInvertLook') {
+      input.setTouchInvertLook(settings.set('touchInvertLook', !!value));
+      return;
+    }
     if (key === 'filterProfanity') {
       settings.set('filterProfanity', !!value);
       return;
@@ -702,18 +741,64 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
       syncAttackMoveInput();
       return;
     }
+    // Interface & Comfort booleans: each toggles a body class (CSS does the rest)
+    // or flips a live subsystem flag. No sim involvement — purely presentational.
+    if (key === 'reduceMotion') {
+      document.body.classList.toggle('reduce-motion', settings.set('reduceMotion', !!value));
+      return;
+    }
+    if (key === 'highContrastText') {
+      document.body.classList.toggle('high-contrast-text', settings.set('highContrastText', !!value));
+      return;
+    }
+    if (key === 'frostedPanels') {
+      document.body.classList.toggle('frosted-panels', settings.set('frostedPanels', !!value));
+      return;
+    }
+    if (key === 'compactChat') {
+      document.body.classList.toggle('compact-chat', settings.set('compactChat', !!value));
+      return;
+    }
+    if (key === 'showFps') {
+      fpsEnabled = settings.set('showFps', !!value);
+      fpsOverlay.style.display = fpsEnabled ? 'block' : 'none';
+      return;
+    }
+    if (key === 'invertLookY') {
+      input.setInvertLookY(settings.set('invertLookY', !!value));
+      return;
+    }
+    if (key === 'voiceEnabled') {
+      voice.setEnabled(settings.set('voiceEnabled', !!value));
+      return;
+    }
     const v = settings.set(key as keyof typeof SETTING_RANGES, value as number);
     switch (key) {
       case 'cameraSpeed': input.setCameraSpeed(v); break;
       case 'touchLookSpeed': input.setTouchLookSpeed(v); break;
-      case 'sfxVolume': audio.setVolume(v); break;
+      case 'sfxVolume': audio.setVolume(v); sfx.setVolume(v); break;
       case 'musicVolume': music.setVolume(v); break;
+      case 'voiceVolume': voice.setVolume(v); break;
       case 'brightness': renderer.setBrightness(v); break;
+      case 'cameraFov': renderer.setCameraFov(v); break;
       case 'renderScale': renderer.setRenderScale(v); break;
       case 'fullscreen': v >= 0.5 ? requestPreferredFullscreen() : exitBrowserFullscreen(); break;
       case 'clickToMove': if (v < 0.5) input.clearClickMove(); syncClickMoveInput(); break;
       case 'clickToMoveButton': syncClickMoveInput(); break;
       case 'touchOpacity': document.documentElement.style.setProperty('--touch-opacity', String(v)); break;
+      case 'weather': renderer.setWeatherEnabled(v >= 0.5); break;
+      case 'joystickScale':
+        document.getElementById('mobile-controls')?.style.setProperty('--joy-scale', String(v));
+        break;
+      case 'actionButtonScale': document.getElementById('mobile-controls')?.style.setProperty('--btn-scale', String(v)); break;
+      case 'joystickDeadzone': mobileControls.setMoveDeadzone(v); break;
+      // Interface & Comfort sliders: each drives one CSS custom property that
+      // index.html consumes. Setting them on :root keeps the HUD authoritative.
+      case 'tooltipScale': document.documentElement.style.setProperty('--tooltip-scale', String(v)); break;
+      case 'chatFontScale': document.documentElement.style.setProperty('--chat-font-scale', String(v)); break;
+      case 'chatOpacity': document.documentElement.style.setProperty('--chat-opacity', String(v)); break;
+      case 'fctScale': document.documentElement.style.setProperty('--fct-scale', String(v)); break;
+      case 'hudOpacity': document.documentElement.style.setProperty('--hud-opacity', String(v)); break;
     }
   }
   // apply persisted settings to the freshly-built subsystems
@@ -1127,12 +1212,21 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     return !!(mi.forward || mi.back || mi.strafeLeft || mi.strafeRight) && !world.player.dead;
   }
 
+  function updateFpsOverlay(frameDt: number, nowMs: number): void {
+    if (!fpsEnabled) return;
+    if (frameDt > 0) fpsSmoothed += (1 / frameDt - fpsSmoothed) * 0.1;
+    if (nowMs - fpsLastPaintMs < 250) return;
+    fpsLastPaintMs = nowMs;
+    fpsOverlay.textContent = t('hud.options.fpsReadout', { fps: formatNumber(Math.round(fpsSmoothed)) });
+  }
+
   function frame(now: number): void {
     requestAnimationFrame(frame);
     let frameDt = (now - last) / 1000;
     last = now;
     if (frameDt > 0.25) frameDt = 0.25;
     perf.frame(frameDt);
+    updateFpsOverlay(frameDt, now);
 
     // freeze movement while the game menu is up so WASD doesn't walk the
     // character behind it (other windows stay non-modal, as before)
@@ -1153,6 +1247,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
         Object.assign(offlineSim.moveInput, mi);
         const stepFacing = movementFacing ?? facing;
         if (stepFacing !== null) offlineSim.player.facing = stepFacing;
+        offlineSim.updateFiestaBots(); // dev: steer Fiesta practice bots (no-op unless active)
         perf.markInputSent(performance.now());
         const events = perf.time('sim', () => offlineSim.tick());
         perf.time('events', () => hud.handleEvents(events));
@@ -1189,6 +1284,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     perf.time('events', () => hud.handleEvents(net.drainEvents()));
     if (net.consumeProfanityChanged()) hud.setProfanityWords(net.profanityWords);
     if (net.consumeInventoryChanged()) hud.onInventoryChanged();
+    if (net.consumeCosmeticsChanged()) hud.onCosmeticsChanged();
     const alpha = net.lastSnapAt > 0
       ? Math.min(1.25, (performance.now() - net.lastSnapAt) / Math.max(20, net.snapInterval))
       : 1;
@@ -1972,6 +2068,7 @@ async function enterWorld(c: CharacterSummary, button?: HTMLButtonElement): Prom
     if (!(await prepareWorldEntry())) return;
     audio.init();
     music.init();
+    sfx.init();
     enterLoadingState(t('loading.connectingRealm'));
   } finally {
     if (!hasBegunWorldEntry && button) {
@@ -2506,23 +2603,29 @@ async function loadHighscores(): Promise<void> {
     return;
   }
   const esc = (s: string): string => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+  const rankLabel = t('game.leaderboard.rank');
+  const nameLabel = t('game.leaderboard.name');
+  const realmLabel = t('game.leaderboard.realmCol');
+  const levelLabel = t('game.leaderboard.level');
+  const virtualLevelLabel = t('game.leaderboard.vlevel');
+  const lifetimeXpLabel = t('game.leaderboard.lifetimeXp');
   const head = `<div class="hs-row hs-head">`
-    + `<span class="hs-rank">${t('game.leaderboard.rank')}</span>`
-    + `<span class="hs-name">${t('game.leaderboard.name')}</span>`
-    + `<span class="hs-realm">${t('game.leaderboard.realmCol')}</span>`
-    + `<span class="hs-lvl">${t('game.leaderboard.level')}</span>`
-    + `<span class="hs-vlvl">${t('game.leaderboard.vlevel')}</span>`
-    + `<span class="hs-xp">${t('game.leaderboard.lifetimeXp')}</span></div>`;
+    + `<span class="hs-rank">${rankLabel}</span>`
+    + `<span class="hs-name">${nameLabel}</span>`
+    + `<span class="hs-realm">${realmLabel}</span>`
+    + `<span class="hs-lvl">${levelLabel}</span>`
+    + `<span class="hs-vlvl">${virtualLevelLabel}</span>`
+    + `<span class="hs-xp">${lifetimeXpLabel}</span></div>`;
   const body = rows.map((r) => {
     const cls = CLASSES[r.cls];
     const star = r.prestigeRank > 0 ? `<span class="hs-prestige" title="${t('game.prestige.rank')} ${r.prestigeRank}">★${r.prestigeRank}</span>` : '';
     return `<div class="hs-row${r.rank <= 3 ? ' hs-top' : ''}">`
       + `<span class="hs-rank">${r.rank}</span>`
       + `<span class="hs-name"${cls ? ` title="${esc(classDisplayName(r.cls))}"` : ''}>${star}${esc(r.name)}</span>`
-      + `<span class="hs-realm">${esc(r.realm ?? '')}</span>`
-      + `<span class="hs-lvl">${r.level}</span>`
-      + `<span class="hs-vlvl">${r.virtualLevel}</span>`
-      + `<span class="hs-xp">${formatXp(r.lifetimeXp)}</span></div>`;
+      + `<span class="hs-realm" data-label="${esc(realmLabel)}">${esc(r.realm ?? '')}</span>`
+      + `<span class="hs-lvl" data-label="${esc(levelLabel)}">${r.level}</span>`
+      + `<span class="hs-vlvl" data-label="${esc(virtualLevelLabel)}">${r.virtualLevel}</span>`
+      + `<span class="hs-xp" data-label="${esc(lifetimeXpLabel)}">${formatXp(r.lifetimeXp)}</span></div>`;
   }).join('');
   host.innerHTML = head + body;
 }
@@ -2599,7 +2702,7 @@ async function loadNews(): Promise<void> {
       : '';
     return `<article class="news-item">`
       + `<div class="news-item-head">`
-      + `<h3 class="news-item-title">${title}</h3>${tag}${badge}${when}</div>`
+      + `<h3 class="news-item-title">${title}</h3><div class="news-item-meta">${tag}${badge}${when}</div></div>`
       + `<div class="news-body">${renderReleaseBody(r.body)}</div>${link}</article>`;
   }).join('');
 }
@@ -2695,8 +2798,29 @@ function wireHomepageMusicToggle(): void {
 }
 
 function wireStartScreens(): void {
-  // Initial page translation and stats load
-  translatePage();
+  // Initial page translation and stats load. Lazy locale flip: a stored non-en locale is now
+  // a real chunk fetch, and the homepage IS the first paint (there is no loading screen to sit
+  // behind), so we localize-then-reveal to prevent an English flash + text swap. The start
+  // screen is held with visibility:hidden - which PRESERVES layout, so there is no layout
+  // shift - ONLY when the boot locale is not already resident; English and any already-loaded
+  // locale skip the gate entirely (no blank, no delay). The gate lifts on BOTH resolve and
+  // reject (the English fallback still renders), so a failed locale fetch can never strand the
+  // homepage hidden. The stored-locale modulepreload will shrink the non-en hold toward zero.
+  const bootLang = getLanguage();
+  const startScreen = document.getElementById('start-screen');
+  const gated = !!startScreen && !isLocaleResident(bootLang);
+  if (gated) startScreen!.style.visibility = 'hidden';
+  const revealLocalized = () => {
+    // Restore visibility even if translatePage() throws (e.g. a dev-build untracked-key
+    // throw or any mid-translate DOM error), so a translation failure can never strand the
+    // homepage permanently hidden - a worse failure than the English flash this gate prevents.
+    try {
+      translatePage();
+    } finally {
+      if (gated) startScreen!.style.visibility = '';
+    }
+  };
+  void ensureLocaleLoaded(bootLang).then(revealLocalized, revealLocalized);
   hydrateIcons();
   void loadProjectStats();
   wireContractAddressCopy();
@@ -2734,6 +2858,7 @@ function wireStartScreens(): void {
 
     audio.init();
     music.init();
+    sfx.init();
     const name = sanitizeOfflineName(rawName);
     void startOffline(cls, name, selectedSkin('#offline-skin-row', offlineSkin));
   };
@@ -3428,24 +3553,48 @@ function wireStartScreens(): void {
 
   // Language selection dropdown setup
   const langSelect = $('#lang-select') as HTMLSelectElement | null;
+  const langStatus = $('#lang-select-status') as HTMLElement | null;
   if (langSelect) {
     langSelect.value = getLanguage();
     langSelect.addEventListener('change', () => {
       const selected = langSelect.value;
-      if (!isSupportedLanguage(selected)) return;
-      setLanguage(selected);
-      
-      // Dynamically update the browser URL query parameter without page reload
-      if (typeof window !== 'undefined' && window.history) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('lang', selected);
-        window.history.pushState({}, '', url.toString());
+      if (!isSupportedLanguage(selected)) {
+        // The static <option> set should never produce this, but the picker is the
+        // user-facing seam: surface it via t() and revert to the active locale.
+        if (langStatus) langStatus.textContent = t('settings.languageLoadUnavailable');
+        langSelect.value = getLanguage();
+        return;
       }
-      
-      translatePage();
-      refreshLocalizedDynamicShell();
-      updateSortButtonLabel();
-      document.dispatchEvent(new CustomEvent('woc:languagechange', { detail: { language: selected } }));
+      // Async locale loader: load the locale chunk BEFORE switching. At this point the
+      // module is still static-imported through the barrel, so the await resolves on a
+      // microtask with no network and the transient "loading" status never paints; the
+      // failure path is wired now so the lazy locale flip's real fetch needs no call-site change.
+      void (async () => {
+        if (langStatus) langStatus.textContent = t('settings.languageLoading');
+        try {
+          await ensureLocaleLoaded(selected);
+        } catch {
+          // The locale chunk failed to load (a real risk once the lazy locale flip makes this a
+          // network fetch). Keep the already-resident locale and tell the user.
+          if (langStatus) langStatus.textContent = t('settings.languageLoadFailed');
+          langSelect.value = getLanguage();
+          return;
+        }
+        if (langStatus) langStatus.textContent = '';
+        setLanguage(selected);
+
+        // Dynamically update the browser URL query parameter without page reload
+        if (typeof window !== 'undefined' && window.history) {
+          const url = new URL(window.location.href);
+          url.searchParams.set('lang', selected);
+          window.history.pushState({}, '', url.toString());
+        }
+
+        translatePage();
+        refreshLocalizedDynamicShell();
+        updateSortButtonLabel(); // char-select sort dropdown label follows the locale
+        document.dispatchEvent(new CustomEvent('woc:languagechange', { detail: { language: selected } }));
+      })();
     });
   }
 

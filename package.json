@@ -1,6 +1,6 @@
 {
   "name": "world-of-claudecraft",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -14,6 +14,7 @@
     "i18n:build": "node scripts/i18n_build.mjs",
     "i18n:admin": "node scripts/i18n_admin_build.mjs",
     "i18n:scan": "node scripts/i18n_scan.mjs",
+    "i18n:gen": "npm run i18n:build && npm run i18n:admin && npm run i18n:scan",
     "i18n:hash": "node scripts/i18n_resolved_hash.mjs",
     "i18n:worklist": "node scripts/i18n_fill_worklist.mjs",
     "perf:tour": "node scripts/perf_tour.mjs",
@@ -28,6 +29,9 @@
     "server": "npm run build:server && node dist-server/server.cjs",
     "realms": "npm run build:server && node scripts/dev-realms.mjs",
     "admin:grant": "node scripts/grant_admin.mjs",
+    "voices:gen": "node scripts/gen_npc_voices.mjs",
+    "voices:lines": "node scripts/gen_npc_lines.mjs",
+    "sfx:gen": "node scripts/gen_sfx.mjs",
     "wiki:seed": "node scripts/mediawiki/build_seed.mjs"
   },
   "dependencies": {

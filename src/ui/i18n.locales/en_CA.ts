@@ -8,7 +8,7 @@
 // path (tests/i18n_overlay_key_membership.test.ts + the byte gate). Keys are in `en`'s
 // leaf order.
 
-import type { TranslationKey } from '../i18n.en';
+import type { TranslationKey } from '../i18n.catalog';
 
 export const en_CA: Partial<Record<TranslationKey, string>> = {
   "classDetails.labels.armor": "Armour",

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -19,6 +19,7 @@ import {
   formatDateTime,
   formatMoney,
   formatNumber,
+  ensureLocaleLoaded,
   isSupportedLanguage,
   languageTag,
   setLanguage,
@@ -68,6 +69,15 @@ const locales: Record<string, typeof en> = {
 const RELEASE_TIER = process.env.I18N_RELEASE_TIER === "1";
 
 describe("i18n Localization Key Coverage", () => {
+  // Lazy locale flip: non-en locales are no longer statically resident. This suite
+  // setLanguage(non-en)s and reads synchronously via t()/tEntity/formatMoney/talent helpers,
+  // so make every supported locale resident up front - the test-harness mirror of the
+  // bootstrap's await-before-paint. Each setLanguage(lang) read then resolves the localized
+  // table instead of the English fallback.
+  beforeAll(async () => {
+    await Promise.all(supportedLanguages.map((lang) => ensureLocaleLoaded(lang)));
+  });
+
   const placeholderPattern = /\b(TODO|TBD|FIXME|PLACEHOLDER|TRANSLATE|LOREM)\b/i;
   const shellKeys: TranslationKey[] = [
     "seo.title",
@@ -297,7 +307,9 @@ describe("i18n Localization Key Coverage", () => {
     action: "Open Chat",
     amount: 42,
     base: 14,
+    rested: 18,
     buyer: "Mira",
+    channel: "World",
     classes: "Warrior, Mage",
     className: "Mage",
     command: "/dance",
@@ -310,6 +322,7 @@ describe("i18n Localization Key Coverage", () => {
     dps: "7.4",
     duration: "15s",
     form: "Bear",
+    fps: 60,
     guild: "Night Watch",
     index: 2,
     item: "Rough Bracers",
@@ -1196,7 +1209,10 @@ describe("i18n Localization Key Coverage", () => {
     }
     expect(html).toContain('data-i18n-content="seo.description"');
     expect(html).toContain('data-i18n-placeholder="hud.core.chatPlaceholder"');
-    expect(html).toContain('data-i18n="hud.core.chatTab"');
+    // The chat tabs (Chat / Combat Log / per-channel) are rendered by the HUD
+    // via t() rather than static markup, so #chatlog-tabs is an empty tablist
+    // here. Its labels are localized in hud.ts (initChatTabs), not in index.html.
+    expect(html).toContain('id="chatlog-tabs"');
     expect(html).toContain('data-i18n="entities.zones.eastbrook_vale.name"');
     expect(html).toContain('data-i18n-title="itemUi.bags.title"');
     expect(html).toContain('data-i18n-aria="hud.core.mobileControls"');

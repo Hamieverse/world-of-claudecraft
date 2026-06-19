@@ -54,3 +54,10 @@ A new backend endpoint must be added in `server/admin.ts` first (see server/CLAU
   re-checks admin on every request; the UI gate is cosmetic.
 - `$('id')` throws if the element is missing — keep `admin.html` ids in sync with `main.ts`.
 - Don't import anything from `src/sim`, `src/render`, `src/ui`, `src/net`, or `IWorld` here.
+- **Mobile zoom:** operators are users, and the dashboard ships to phones/tablets. Every
+  `input`/`textarea`/`select` must render **≥16px** on touch or iOS Safari zooms the page
+  on focus. A `@media (pointer: coarse) { input, textarea, select { font-size: 16px !important } }`
+  floor in `admin.html` enforces this centrally (the `!important` beats id-specific rules
+  like `#login input`); keep it and don't add a per-control mobile font below 16px. Don't
+  add `user-scalable=no`/`maximum-scale` to the viewport (a WCAG failure that iOS ignores
+  for focus-zoom anyway). Check: `node scripts/mobile_input_zoom_check.mjs`.

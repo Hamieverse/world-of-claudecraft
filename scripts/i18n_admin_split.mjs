@@ -71,7 +71,7 @@ function enFile(enKeys, en) {
     '// (scripts/i18n_scan.mjs) marks `pending`. Do NOT add a translation here.',
     '//',
     '// `AdminTranslations` (= typeof en) types every locale in the generated dense',
-    '// table src/admin/i18n.resolved.generated.ts, so tsc red-fails a missing or',
+    '// table (the per-locale slices under src/admin/i18n.resolved.generated/), so tsc red-fails a missing or',
     '// renamed key - the same completeness safety net the game client has.',
     '',
     'export const en = {',
