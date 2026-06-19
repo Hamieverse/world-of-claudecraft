@@ -4250,11 +4250,11 @@ export const it_IT: EnTranslations = {
       },
       "q_ledger_first_duty": {
         "title": "Il primo dovere di un guardiano",
-        "text": "Vuoi guadagnarti il pane a Eastbrook, {playerName}? Allora comincia da dove comincia ogni guardiano. I cinghiali nel prato a ovest sono diventati grassi e senza paura, e dissotterrano la semina di primavera. Abbatti 8 Cinghiali selvatici e il registro ricorderà il tuo nome.",
-        "completion": "Otto cinghiali e la semina salva. Bene. Ogni nome in questo registro è cominciato proprio dove stai tu adesso.",
+        "text": "Vuoi guadagnarti il pane a Eastbrook, {playerName}? Allora comincia da dove comincia ogni guardiano. I tassi pellespinosa hanno scavato le loro tane attraverso la Radura di Brightwood, all'estremo nord oltre il Sentiero dei lupi, e il suolo del bosco sta sprofondando nelle loro gallerie. Abbatti 8 Tassi pellespinosa e il registro ricorderà il tuo nome.",
+        "completion": "Otto tane svuotate e il suolo del bosco si è riassestato. Bene. Ogni nome in questo registro è cominciato proprio dove stai tu adesso.",
         "objectives": {
           "0": {
-            "label": "Cinghiale selvatico abbattuto"
+            "label": "Tasso pellespinosa abbattuto"
           }
         }
       },

@@ -4250,11 +4250,11 @@ export const fr_FR: EnTranslations = {
       },
       "q_ledger_first_duty": {
         "title": "Le premier devoir d'un gardien",
-        "text": "Vous voulez gagner votre place à Eastbrook, {playerName} ? Alors commencez là où commence tout gardien. Les sangliers du pré ouest sont devenus gras et sans crainte, retournant les semailles du printemps. Abattez 8 sangliers sauvages et le registre retiendra votre nom.",
-        "completion": "Huit sangliers et les semailles sauvées. Bien. Chaque nom de ce registre a commencé là où vous vous tenez.",
+        "text": "Vous voulez gagner votre place à Eastbrook, {playerName} ? Alors commencez là où commence tout gardien. Les blaireaux pelage-d'épines ont creusé leurs terriers à travers toute la Clairière de Brightwood, loin au nord au-delà de la Piste des loups, et le sol du bosquet s'effondre dans leurs galeries. Abattez 8 Blaireaux Pelage-d'épines et le registre retiendra votre nom.",
+        "completion": "Huit terriers vidés et le sol du bosquet s'est tassé. Bien. Chaque nom de ce registre a commencé là où vous vous tenez.",
         "objectives": {
           "0": {
-            "label": "Sanglier sauvage abattu"
+            "label": "Blaireau Pelage-d'épines abattu"
           }
         }
       },

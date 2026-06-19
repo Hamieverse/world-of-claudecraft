@@ -4250,8 +4250,8 @@ export const en_CA: EnTranslations = {
       },
       "q_ledger_first_duty": {
         "title": "A Warden's First Duty",
-        "text": "You want to earn your keep in Eastbrook, {playerName}? Then start where every warden starts. The thornpelt badgers have dug their setts clean through the west meadow, and the spring planting is collapsing into their burrows. Cull 8 Thornpelt Badgers and the ledger will remember your name.",
-        "completion": "Eight setts emptied and the planting saved. Good. Every name in this ledger started just where you are standing.",
+        "text": "You want to earn your keep in Eastbrook, {playerName}? Then start where every warden starts. The thornpelt badgers have dug their setts clean through the Brightwood Glade, in the far north past Wolf Run, and the grove floor is caving into their burrows. Cull 8 Thornpelt Badgers and the ledger will remember your name.",
+        "completion": "Eight setts emptied and the grove floor settled. Good. Every name in this ledger started just where you are standing.",
         "objectives": {
           "0": {
             "label": "Thornpelt Badger culled"

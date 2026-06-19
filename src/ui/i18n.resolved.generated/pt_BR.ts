@@ -4250,11 +4250,11 @@ export const pt_BR: EnTranslations = {
       },
       "q_ledger_first_duty": {
         "title": "O Primeiro Dever de um Guardião",
-        "text": "Quer merecer seu sustento em Eastbrook, {playerName}? Então comece onde cada guardião começa. Os javalis no prado oeste ficaram gordos e destemidos, fuçando o plantio da primavera. Abata 8 Javalis selvagens e o livro-razão lembrará seu nome.",
-        "completion": "Oito javalis e o plantio salvo. Bom. Cada nome neste livro-razão começou exatamente onde você está agora.",
+        "text": "Quer merecer seu sustento em Eastbrook, {playerName}? Então comece onde cada guardião começa. Os texugos pelo-de-espinho cavaram suas tocas por toda a Clareira de Brightwood, lá no extremo norte, depois da Trilha dos lobos, e o chão do bosque está afundando nos buracos deles. Abata 8 Texugos Pelo-de-espinho e o livro-razão lembrará seu nome.",
+        "completion": "Oito tocas esvaziadas e o chão do bosque assentado. Bom. Cada nome neste livro-razão começou exatamente onde você está agora.",
         "objectives": {
           "0": {
-            "label": "Javali selvagem abatido"
+            "label": "Texugo Pelo-de-espinho abatido"
           }
         }
       },

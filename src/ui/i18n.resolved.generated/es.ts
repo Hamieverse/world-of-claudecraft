@@ -4250,11 +4250,11 @@ export const es: EnTranslations = {
       },
       "q_ledger_first_duty": {
         "title": "El primer deber de un guardián",
-        "text": "¿Quieres ganarte el sustento en Eastbrook, {playerName}? Pues empieza donde empieza cada guardián. Los jabalíes del prado oeste se han vuelto gordos y atrevidos, hozando la siembra de primavera. Sacrifica 8 Jabalíes salvajes y el libro mayor recordará tu nombre.",
-        "completion": "Ocho jabalíes y la siembra a salvo. Bien. Cada nombre de este libro mayor empezó justo donde tú estás parado.",
+        "text": "¿Quieres ganarte el sustento en Eastbrook, {playerName}? Pues empieza donde empieza cada guardián. Los tejones pielespina han excavado sus madrigueras a lo largo del Claro de Brightwood, en el extremo norte pasada la Senda de lobos, y el suelo de la arboleda se está hundiendo en sus túneles. Sacrifica 8 Tejones pielespina y el libro mayor recordará tu nombre.",
+        "completion": "Ocho madrigueras vaciadas y el suelo de la arboleda asentado. Bien. Cada nombre de este libro mayor empezó justo donde tú estás parado.",
         "objectives": {
           "0": {
-            "label": "Jabalíes salvajes sacrificados"
+            "label": "Tejón pielespina sacrificado"
           }
         }
       },

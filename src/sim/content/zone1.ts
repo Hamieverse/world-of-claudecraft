@@ -764,8 +764,8 @@ export const ZONE1_QUESTS: Record<string, QuestDef> = {
   q_ledger_first_duty: {
     id: 'q_ledger_first_duty', name: "A Warden's First Duty",
     giverNpcId: 'marshal_redbrook', turnInNpcId: 'marshal_redbrook',
-    text: 'You want to earn your keep in Eastbrook, $N? Then start where every warden starts. The thornpelt badgers have dug their setts clean through the west meadow, and the spring planting is collapsing into their burrows. Cull 8 Thornpelt Badgers and the ledger will remember your name.',
-    completionText: 'Eight setts emptied and the planting saved. Good. Every name in this ledger started just where you are standing.',
+    text: 'You want to earn your keep in Eastbrook, $N? Then start where every warden starts. The thornpelt badgers have dug their setts clean through the Brightwood Glade, in the far north past Wolf Run, and the grove floor is caving into their burrows. Cull 8 Thornpelt Badgers and the ledger will remember your name.',
+    completionText: 'Eight setts emptied and the grove floor settled. Good. Every name in this ledger started just where you are standing.',
     objectives: [{ type: 'kill', targetMobId: 'thornpelt_badger', count: 8, label: 'Thornpelt Badger culled' }],
     xpReward: 240, copperReward: 70, itemRewards: {},
     minLevel: 1,

@@ -4250,11 +4250,11 @@ export const de_DE: EnTranslations = {
       },
       "q_ledger_first_duty": {
         "title": "Eines Hüters erste Pflicht",
-        "text": "Ihr wollt Euch in Eastbrook Euren Unterhalt verdienen, {playerName}? Dann fangt dort an, wo jeder Hüter anfängt. Die Keiler auf der Westwiese sind fett und furchtlos geworden und wühlen die Frühjahrssaat aus. Erlegt 8 Wildschweine, und das Verzeichnis wird sich Eures Namens entsinnen.",
-        "completion": "Acht Keiler und die Aussaat gerettet. Gut. Jeder Name in diesem Verzeichnis hat genau dort begonnen, wo Ihr jetzt steht.",
+        "text": "Ihr wollt Euch in Eastbrook Euren Unterhalt verdienen, {playerName}? Dann fangt dort an, wo jeder Hüter anfängt. Die Dornpelz-Dachse haben ihre Baue quer durch die Hellholz-Lichtung gegraben, hoch im Norden jenseits des Wolfslaufs, und der Waldboden bricht in ihre Gänge ein. Erlegt 8 Dornpelz-Dachse, und das Verzeichnis wird sich Eures Namens entsinnen.",
+        "completion": "Acht Baue geräumt und der Waldboden hat sich gesetzt. Gut. Jeder Name in diesem Verzeichnis hat genau dort begonnen, wo Ihr jetzt steht.",
         "objectives": {
           "0": {
-            "label": "Wildschweine erlegt"
+            "label": "Dornpelz-Dachs erlegt"
           }
         }
       },
