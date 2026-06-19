@@ -16,7 +16,10 @@ export const FISHING_CAST_TIME = 5;
 export type PlayerClass =
   | 'warrior' | 'paladin' | 'hunter' | 'rogue' | 'priest'
   | 'shaman' | 'mage' | 'warlock' | 'druid';
-export type ArenaFormat = '1v1' | '2v2';
+// '1v1'/'2v2' are the ranked Ashen Coliseum ladders; 'fiesta' is the
+// dopamine-maxxed 2v2 party mode (score-based, respawns, augments, a shrinking
+// ring) — see docs/design and the Fiesta region of sim.ts.
+export type ArenaFormat = '1v1' | '2v2' | 'fiesta';
 
 export interface ArenaStanding {
   rating: number;
@@ -54,7 +57,10 @@ export type AuraKind =
   | 'attackspeed' | 'debuff_ap' | 'buff_ap' | 'buff_armor' | 'buff_int' | 'buff_agi' | 'buff_dodge' | 'buff_speed' | 'buff_haste'
   | 'hot' | 'absorb' | 'imbue' | 'buff_sta' | 'buff_allstats' | 'thorns' | 'form_bear'
   | 'form_cat' | 'stealth' | 'defensive_stance' | 'righteous_fury' | 'sunder' | 'mortal_wound' | 'silence' | 'blind' | 'disarm' | 'expose' | 'spellvuln' | 'lockout'
-  | 'vulnerability' | 'hex' | 'tongues' | 'cost_tax' | 'heal_absorb' | 'critvuln' | 'buff_spi';
+  | 'vulnerability' | 'hex' | 'tongues' | 'cost_tax' | 'heal_absorb' | 'critvuln' | 'buff_spi'
+  // 2v2 Fiesta power-up buffs: `buff_scale` value = body-size multiplier (also
+  // boosts max-hp when >1); `buff_jump` value = jump-height multiplier.
+  | 'buff_scale' | 'buff_jump';
 
 export interface Aura {
   id: string; // ability id that applied it
@@ -106,8 +112,18 @@ export type EquipSlot =
   | 'gloves'
   | 'feet';
 
+export type SkinCatalog = 'class' | 'mech';
+
 export type ItemUse =
-  | { type: 'fishing' };
+  | { type: 'fishing' }
+  | { type: 'mechChroma'; chromaId: string }
+  // Opens the client-side event skin-select overlay. The server rolls a rank on
+  // use (see Sim.openSkinSelect) and the player locks one in via claimEventSkin.
+  | { type: 'skinSelect'; catalog?: SkinCatalog };
+
+// Rarity ranks for the cosmetic skin-select event, ordered low → high. A rolled
+// rank unlocks its own tier and every tier below it (epic unlocks rare+uncommon).
+export type SkinRank = 'uncommon' | 'rare' | 'epic';
 
 export interface ItemDef {
   id: string;
@@ -120,6 +136,9 @@ export interface ItemDef {
   sellValue: number; // copper (vendor buys at this)
   buyValue?: number; // copper (vendor sells at this)
   questId?: string;
+  noVendorSell?: boolean;
+  noDiscard?: boolean;
+  noMarketList?: boolean;
   /** Shown when interacting with a ground quest object before the quest is active. */
   pickupDeny?: string;
   /** Shown when the quest is active but the collect count is already met. */
@@ -885,6 +904,7 @@ export interface Entity {
   dead: boolean;
   scale: number;
   color: number;
+  skinCatalog: SkinCatalog; // player appearance catalog: class texture set or cosmetic body.
   skin: number; // player appearance: index into SKINS[visualKey]; 0 = default. synced in identity fields.
 }
 
@@ -936,12 +956,31 @@ export type SimEvent = { pid?: number } & (
   | { type: 'arenaCountdown'; seconds: number }
   | { type: 'arenaStart' }
   | { type: 'arenaEnd'; format: ArenaFormat; won: boolean; draw: boolean; oppName: string; ratingBefore: number; ratingAfter: number; allies: ArenaCombatant[]; enemies: ArenaCombatant[] }
+  // 2v2 Fiesta party mode. All carry pid (personal — delivered to each combatant).
+  // `fiestaScore`: the running team tally changed. `fiestaWave`: a new augment
+  // wave just opened. `fiestaWord`: an exaggerated word-pop cue (the client maps
+  // `flavor` to a localized exclamation). `fiestaDown`: you were dropped and will
+  // respawn in `seconds`. `augmentOffer`: pick one of these augment ids.
+  // `augmentChosen`: a fighter locked in an augment (own or ally, for flavor).
+  | { type: 'fiestaScore'; a: number; b: number; limit: number; team: 'A' | 'B' }
+  | { type: 'fiestaWave'; wave: number; totalWaves: number }
+  | { type: 'fiestaWord'; flavor: 'firstblood' | 'kill' | 'doublekill' | 'spree' | 'shutdown' | 'revived' | 'ringclose'; n?: number }
+  | { type: 'fiestaDown'; seconds: number }
+  | { type: 'augmentOffer'; tier: 'silver' | 'gold' | 'prismatic'; wave: number; choices: string[] }
+  | { type: 'augmentChosen'; augmentId: string; byPid: number; byName: string; mine: boolean }
+  // A fighter grabbed a ring power-up (world event so everyone sees the glow).
+  // Whether it's "mine" is decided client-side (entityId === local player).
+  | { type: 'fiestaPowerup'; entityId: number; defId: string; glow: number; duration: number }
   | { type: 'heal2'; sourceId: number; targetId: number; amount: number; crit: boolean; ability: string }
   // visual-only cue for the renderer: spell projectiles, dot ticks, aoe novas
   | { type: 'spellfx'; sourceId: number; targetId: number; school: string; fx: 'projectile' | 'tick' | 'nova' }
   // entityId (when set) anchors the log to that entity so the server only
   // delivers it to nearby players; anchorless logs broadcast server-wide
   | { type: 'log'; text: string; color?: string; entityId?: number }
+  // personal cue (carries `pid`) to open the cosmetic skin-select overlay with
+  // the server-rolled rank. Text-free on purpose — the client renders its own
+  // localized copy, so no sim/server i18n matcher rule is needed.
+  | { type: 'skinEvent'; rank: SkinRank; catalog?: SkinCatalog }
 );
 
 export interface MoveInput {

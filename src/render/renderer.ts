@@ -9,8 +9,11 @@ import {
 import { cameraOcclusion } from '../sim/colliders';
 import type { BiomeId } from '../sim/types';
 import { AnimState, CharacterVisual, createCharacterVisual } from './characters';
+import { visualKeyFor } from './characters/manifest';
+import { mechAssetsReady, preloadMechAssets } from './characters/assets';
 import { isVisuallyDead } from './anim_state';
 import { LocoTrack, newLocoTrack, updateLocomotion } from './locomotion';
+import type { SpatialAudioSink, Surface } from './audio_sink';
 import { buildProps } from './props';
 import { plankTexture, sparkleTexture } from './textures';
 import { DungeonInteriors, ensureDungeonAssets } from './dungeon';
@@ -29,6 +32,7 @@ import { buildFish, FishView } from './fish';
 import { buildCritters, CritterField } from './critters';
 import { buildMotes, MotesView } from './motes';
 import { buildBirds, BirdsView } from './birds';
+import { buildImpactSite, type ImpactSiteView } from './impact_site';
 import { shouldRenderStealthGhost } from './stealth';
 import { t } from '../ui/i18n';
 import { tEntity } from '../ui/entity_i18n';
@@ -65,6 +69,14 @@ const ENTITY_LOD_RANGE_SQ = 50 * 50;
 // it but a jump (apex ~1.1u) does. Needed because online snapshots don't carry
 // `onGround`, so the flag alone never fires the jump clip for the mirrored world.
 const AIRBORNE_EPS = 0.4;
+// Beyond this (squared) an entity's footsteps/movement are inaudible, so we skip
+// the surface sample + dispatch entirely. Kept under the engine's own cutoff (46u).
+const SFX_MOVE_RANGE_SQ = 42 * 42;
+// Stride length (world units travelled) between footfalls — longer at a run.
+const FOOT_STRIDE_WALK = 0.95;
+const FOOT_STRIDE_RUN = 1.55;
+const SWIM_STRIDE = 2.4;
+const FOOT_RUN_SPEED = 4.5; // u/s — matches the run threshold in characters/anim_state.ts
 // fire/torch point lights beyond this never shine (their falloff range is
 // shorter anyway); the nearest GFX.maxPointLights within it win the budget
 const LIGHT_BUDGET_RANGE_SQ = 55 * 55;
@@ -114,12 +126,15 @@ interface EntityView {
   group: THREE.Group;
   /** rigged glTF visual for characters; null for object views (doors/crates) */
   visual: CharacterVisual | null;
+  visualKey: string | null;
   sheepVisual: CharacterVisual | null; // polymorph form, built lazily
   bearVisual: CharacterVisual | null; // druid bear form, built lazily
   catVisual: CharacterVisual | null; // druid cat form, built lazily
   skin: number; // last-rendered appearance skin — diffed each frame for live swaps
   /** unscaled height — nameplate/vfx anchor reads height * e.scale */
   height: number;
+  /** last-applied entity scale (group.scale); diffed each frame for live size buffs */
+  liveScale: number;
   /** what removeView pulls back out of clickTargets */
   clickTarget: THREE.Object3D;
   nameplate: HTMLDivElement;
@@ -154,6 +169,11 @@ interface EntityView {
   // locomotion-state hysteresis so a one-frame speed dip can't reset the
   // walk clip (see locomotion.ts)
   loco: LocoTrack;
+  // spatial-audio state: distance travelled since the last footfall, and edge
+  // latches for jump/land/water-entry detection.
+  stepAccum: number;
+  wasAirborne: boolean;
+  wasSwimming: boolean;
 }
 
 function collectCasters(root: THREE.Object3D, into: THREE.Object3D[]): void {
@@ -256,6 +276,7 @@ export class Renderer {
   private critters: CritterField;
   private motes: MotesView;
   private birds: BirdsView;
+  private impactSite: ImpactSiteView;
   private fogScratch = new THREE.Color();
   private flames: THREE.Mesh[];
   private fireLights: THREE.PointLight[];
@@ -276,6 +297,17 @@ export class Renderer {
   private frameIdx = 0;
   vfx: Vfx;
   private weather: Weather;
+  private weatherOn = true;
+  private audioSink: SpatialAudioSink | null = null;
+
+  // 2v2 Fiesta juice: trauma-based screen shake (decays each frame) and the
+  // hazard-ring wall (built lazily the first time a Fiesta bout asks for it).
+  private shakeTrauma = 0;
+  private shakeElapsed = 0;
+  private fiestaRing: THREE.Mesh | null = null;
+  private fiestaPowerupMeshes = new Map<number, THREE.Mesh>();
+  // Per-entity power-up glow: emits a coloured swirl around the carrier until it expires.
+  private fiestaGlows = new Map<number, { color: number; until: number; nextSwirl: number }>();
 
   private lowGfx: boolean;
   private post: PostPipeline | null = null;
@@ -471,6 +503,8 @@ export class Renderer {
     this.scene.add(this.motes.group);
     this.birds = buildBirds(this.sim.cfg.seed);
     this.scene.add(this.birds.group);
+    this.impactSite = buildImpactSite(this.sim.cfg.seed);
+    this.scene.add(this.impactSite.group);
     const props = buildProps(this.sim.cfg.seed);
     this.scene.add(props.group);
     this.flames = props.flames;
@@ -578,6 +612,22 @@ export class Renderer {
   /** Toggle biome-driven ambient precipitation (snow/rain). */
   setWeatherEnabled(on: boolean): void {
     this.weather.setEnabled(on);
+    this.weatherOn = on;
+  }
+
+  /** main.ts injects the spatial sound engine here (render never imports game/). */
+  setAudioSink(sink: SpatialAudioSink | null): void {
+    this.audioSink = sink;
+  }
+
+  // Surface under (x,z) for footstep timbre. Sampled only at a footfall (cheap).
+  private surfaceAt(x: number, z: number, y: number): Surface {
+    if (x > DUNGEON_X_THRESHOLD) return 'stone'; // dungeon interiors are stone halls
+    if (groundHeight(x, z, this.sim.cfg.seed) < WATER_LEVEL && y <= WATER_LEVEL + 0.3) return 'water';
+    const biome = zoneBiomeAt(z);
+    if (biome === 'vale') return 'grass';
+    if (biome === 'marsh') return 'dirt';
+    return this.weatherOn ? 'snow' : 'stone'; // peaks: snowy when weather is on
   }
 
   /** Vertical camera field of view in degrees (55..100, default 60). */
@@ -734,6 +784,106 @@ export class Renderer {
       case 'levelup':
         this.vfx.levelUpPillar(this.sim.playerId);
         break;
+      case 'fiestaPowerup':
+        // Big celebratory pop on grab, plus a lingering coloured glow.
+        this.vfx.levelUpPillar(ev.entityId);
+        this.vfx.nova(ev.entityId, 'nature');
+        this.fiestaGlows.set(ev.entityId, { color: ev.glow, until: this.time + ev.duration, nextSwirl: 0 });
+        if (ev.entityId === this.sim.playerId) this.addShake(0.5);
+        break;
+    }
+  }
+
+  // ---- 2v2 Fiesta juice (driven by the HUD's event handler) --------------
+
+  // Add camera trauma (0..1). Squared on apply, so small adds barely register
+  // and big hits (kills, ring closes) really kick.
+  addShake(amount: number): void {
+    this.shakeTrauma = Math.min(1, this.shakeTrauma + amount);
+  }
+
+  // A golden pillar bursts up off a fighter who just locked in an augment.
+  fiestaAugmentBurst(entityId: number): void {
+    this.vfx.levelUpPillar(entityId);
+  }
+
+  // A school-flavoured nova pops on a takedown.
+  fiestaKillBurst(entityId: number, school = 'fire'): void {
+    this.vfx.nova(entityId, school);
+  }
+
+  // The shrinking hazard-ring wall. Built once on first use, then positioned and
+  // scaled to the live ring each frame; hidden whenever no Fiesta bout is active.
+  private updateFiestaRing(dt: number): void {
+    const match = this.sim.arenaInfo?.match;
+    const ring = match?.fiesta?.ring;
+    if (!ring || match?.state !== 'active') {
+      if (this.fiestaRing) this.fiestaRing.visible = false;
+      return;
+    }
+    if (!this.fiestaRing) {
+      const geo = new THREE.CylinderGeometry(1, 1, 8, 48, 1, true);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xff3df0, transparent: true, opacity: 0.3, side: THREE.DoubleSide,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      this.fiestaRing = new THREE.Mesh(geo, mat);
+      this.scene.add(this.fiestaRing);
+    }
+    const m = this.fiestaRing;
+    m.visible = true;
+    const gy = groundHeight(ring.cx, ring.cz, this.sim.cfg.seed);
+    m.position.set(ring.cx, gy + 3, ring.cz);
+    m.scale.set(ring.radius, 1, ring.radius);
+    (m.material as THREE.MeshBasicMaterial).opacity = 0.24 + Math.sin(this.time * 4) * 0.08;
+    m.rotation.y += dt * 0.35;
+  }
+
+  // Floating power-up gems: a 5s growing/pulsing telegraph while 'spawning',
+  // then a bright bobbing orb once 'ready'. Pooled by power-up id.
+  private updateFiestaPowerups(dt: number): void {
+    const match = this.sim.arenaInfo?.match;
+    const list = (match?.fiesta && match.state === 'active') ? match.fiesta.powerups : [];
+    const seen = new Set<number>();
+    for (const p of list) {
+      seen.add(p.id);
+      let m = this.fiestaPowerupMeshes.get(p.id);
+      if (!m) {
+        const geo = new THREE.OctahedronGeometry(0.8, 0);
+        const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+        m = new THREE.Mesh(geo, mat);
+        this.fiestaPowerupMeshes.set(p.id, m);
+        this.scene.add(m);
+      }
+      const gy = groundHeight(p.x, p.z, this.sim.cfg.seed);
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.color.setHex(p.color);
+      if (p.state === 'spawning') {
+        m.scale.setScalar(0.25 + p.frac * 0.85);
+        m.position.set(p.x, gy + 0.7, p.z);
+        mat.opacity = 0.3 + Math.abs(Math.sin(this.time * 9)) * 0.4; // urgent pulse
+      } else {
+        m.scale.setScalar(1);
+        m.position.set(p.x, gy + 1.1 + Math.sin(this.time * 2 + p.id) * 0.25, p.z);
+        mat.opacity = 0.9;
+      }
+      m.rotation.y += dt * 1.6;
+    }
+    for (const [id, m] of this.fiestaPowerupMeshes) {
+      if (seen.has(id)) continue;
+      this.scene.remove(m);
+      (m.material as THREE.Material).dispose();
+      m.geometry.dispose();
+      this.fiestaPowerupMeshes.delete(id);
+    }
+  }
+
+  private tickFiestaGlows(dt: number): void {
+    if (this.fiestaGlows.size === 0) return;
+    for (const [id, g] of this.fiestaGlows) {
+      if (this.time >= g.until || !this.views.has(id)) { this.fiestaGlows.delete(id); continue; }
+      g.nextSwirl -= dt;
+      if (g.nextSwirl <= 0) { g.nextSwirl = 0.22; this.vfx.buffSwirl(id, g.color); }
     }
   }
 
@@ -838,8 +988,14 @@ export class Renderer {
       sparkle.position.y = 1.35;
       group.add(sparkle);
     } else {
+      const visualKey = visualKeyFor(e);
+      if (visualKey === 'player_mech' && !mechAssetsReady()) {
+        void preloadMechAssets().catch((err) => console.error('Failed to preload live mech cosmetic:', err));
+        return;
+      }
       visual = createCharacterVisual(e);
-      visual.root.scale.multiplyScalar(e.scale);
+      // entity scale is applied to the whole group below, so it can update live
+      // (Fiesta size buffs) and also scale lazily-built form visuals for free.
       group.add(visual.root);
       height = visual.height;
     }
@@ -851,11 +1007,11 @@ export class Renderer {
       if (!isQuestVision) visual.clickProxy.userData.entityId = e.id;
       clickTarget = visual.clickProxy;
     } else {
-      body!.scale.multiplyScalar(e.scale);
       group.add(body!);
       body!.traverse((o) => { o.userData.entityId = e.id; });
       clickTarget = body!;
     }
+    group.scale.setScalar(e.scale);
     group.position.set(e.pos.x, e.pos.y, e.pos.z);
     group.userData.entityId = e.id;
     this.scene.add(group);
@@ -915,12 +1071,13 @@ export class Renderer {
     const objectCasters: THREE.Object3D[] = [];
     if (!visual) collectCasters(group, objectCasters);
     this.views.set(e.id, {
-      group, visual, sheepVisual: null, bearVisual: null, catVisual: null, height, clickTarget,
+      group, visual, visualKey: visual ? visualKeyFor(e) : null, sheepVisual: null, bearVisual: null, catVisual: null, height, clickTarget,
       nameplate: np, nameEl, hpBar, hpFill, emoteEl, emoteIconEl, emoteLabelEl, markerEl: marker, raidMarkEl: raidMark, comboRow, comboPips, castBar, castFill, castLabel, sparkle, objectMesh, portal,
       nameplateDisplay: 'none', nameplateTransform: '', nameplateSig: '', nameplateHpWidth: '', comboSig: '',
       objectCasters, shadowOn: true, isFar: false, lastOverheadEmoteKey: null,
-      lastX: e.pos.x, lastZ: e.pos.z, skin: e.skin,
+      lastX: e.pos.x, lastZ: e.pos.z, skin: e.skin, liveScale: e.scale,
       loco: newLocoTrack(),
+      stepAccum: 0, wasAirborne: false, wasSwimming: false,
     });
   }
 
@@ -930,6 +1087,33 @@ export class Renderer {
     if (v.bearVisual?.root.visible) return v.bearVisual;
     if (v.catVisual?.root.visible) return v.catVisual;
     return v.visual;
+  }
+
+  private updateBaseVisual(e: Entity, v: EntityView): void {
+    if (!v.visual) return;
+    const nextKey = visualKeyFor(e);
+    if (nextKey === v.visualKey) return;
+    if (nextKey === 'player_mech' && !mechAssetsReady()) {
+      void preloadMechAssets().catch((err) => console.error('Failed to preload live mech cosmetic:', err));
+      return;
+    }
+    const next = createCharacterVisual(e);
+    next.root.scale.multiplyScalar(e.scale);
+    next.setShadow(v.shadowOn);
+    next.setFar(v.isFar);
+    next.root.visible = v.visual.root.visible;
+    const oldClickTarget = v.clickTarget;
+    const idx = this.clickTargets.indexOf(oldClickTarget);
+    v.visual.dispose();
+    v.group.remove(v.visual.root);
+    if (!e.templateId.startsWith('vision_')) next.clickProxy.userData.entityId = e.id;
+    if (idx >= 0) this.clickTargets[idx] = next.clickProxy;
+    v.visual = next;
+    v.visualKey = nextKey;
+    v.clickTarget = next.clickProxy;
+    v.height = next.height;
+    v.skin = e.skin;
+    v.group.add(next.root);
   }
 
   triggerAttack(entityId: number): void {
@@ -1237,8 +1421,15 @@ export class Renderer {
       }
       if (!v.visual) continue;
 
+      this.updateBaseVisual(e, v);
+      if (!v.visual) continue;
+
       // live skin swap — appearance changed (in-game changer or a multiplayer peer)
       if (e.skin !== v.skin) { v.skin = e.skin; v.visual.setSkin(e.skin); }
+
+      // live body-size buffs (Fiesta power-ups): scale the whole group so the
+      // rig, click proxy, and any form visual grow/shrink together.
+      if (e.scale !== v.liveScale) { v.liveScale = e.scale; v.group.scale.setScalar(e.scale); }
 
       // swimming pose: prone at the surface (derived here — the sim is unaware)
       const swimming = !e.dead
@@ -1248,17 +1439,14 @@ export class Renderer {
       // lazy form visuals, swapped by visibility like the old sheep/bear rigs
       if (polyed && !v.sheepVisual) {
         v.sheepVisual = createCharacterVisual(e, 'form_sheep');
-        v.sheepVisual.root.scale.multiplyScalar(e.scale);
-        v.group.add(v.sheepVisual.root);
+        v.group.add(v.sheepVisual.root); // group.scale already carries e.scale
       }
       if (bear && !v.bearVisual) {
         v.bearVisual = createCharacterVisual(e, 'form_bear');
-        v.bearVisual.root.scale.multiplyScalar(e.scale);
         v.group.add(v.bearVisual.root);
       }
       if (cat && !v.catVisual) {
         v.catVisual = createCharacterVisual(e, 'form_cat');
-        v.catVisual.root.scale.multiplyScalar(e.scale);
         v.group.add(v.catVisual.root);
       }
       if (v.sheepVisual) v.sheepVisual.root.visible = polyed;
@@ -1310,6 +1498,35 @@ export class Renderer {
         swimming,
         sitting: e.kind === 'player' && (e.sitting || e.eating !== null || e.drinking !== null),
       };
+      // --- spatial movement audio (self + others) --------------------------
+      // All gated by audibility (squared distance) so far entities cost nothing.
+      const sink = this.audioSink;
+      if (sink && d2 < SFX_MOVE_RANGE_SQ) {
+        // jump / land / water-entry edges
+        if (airborne && !v.wasAirborne && !visuallyDead) sink.movement('jump', ax, ay, az, isSelf);
+        else if (!airborne && v.wasAirborne && !visuallyDead) sink.movement('land', ax, ay, az, isSelf);
+        if (swimming && !v.wasSwimming && !visuallyDead) sink.movement('splash', ax, ay, az, isSelf);
+        // footfalls / swim strokes via a distance accumulator (no timers)
+        if (visuallyDead || st.sitting) {
+          v.stepAccum = 0;
+        } else if (swimming) {
+          v.stepAccum += loco.speed * dt;
+          if (v.stepAccum >= SWIM_STRIDE) { v.stepAccum = 0; sink.movement('swim', ax, ay, az, isSelf); }
+        } else if (moving && !airborne) {
+          v.stepAccum += loco.speed * dt;
+          const stride = loco.speed >= FOOT_RUN_SPEED ? FOOT_STRIDE_RUN : FOOT_STRIDE_WALK;
+          if (v.stepAccum >= stride) {
+            v.stepAccum = 0;
+            sink.footstep(ax, ay, az, this.surfaceAt(ax, az, ay), loco.speed >= FOOT_RUN_SPEED, isSelf);
+          }
+        } else {
+          // standing still — prime the accumulator so the first step after moving
+          // lands promptly rather than after a full stride of travel.
+          v.stepAccum = FOOT_STRIDE_WALK * 0.6;
+        }
+      }
+      v.wasAirborne = airborne;
+      v.wasSwimming = swimming;
       // distance-tiered mixer updates: near = every frame, mid = every 2nd,
       // far (static LOD mesh visible) = every 6th; edges latch regardless
       let animate = true;
@@ -1395,6 +1612,9 @@ export class Renderer {
     // water shimmer (low-tier texture scroll; shader water rides uTime)
     this.waterView.update(this.time);
     this.vfx.update(dt);
+    this.updateFiestaRing(dt);
+    this.updateFiestaPowerups(dt);
+    this.tickFiestaGlows(dt);
 
     this.updateCamera(selfPos, dt);
     // Fully-fogged terrain chunks / tree buckets are dropped before the
@@ -1420,6 +1640,7 @@ export class Renderer {
     this.critters.update(p.pos.x, p.pos.z, dt);
     this.motes.update(p.pos.x, p.pos.z, dt);
     this.birds.update(p.pos.x, p.pos.z, dt);
+    this.impactSite.update(p.pos.x, p.pos.z, dt);
 
     this.updateAmbience(p.pos.x, this.camera.position.y, dt);
     // shadow frustum follows the player
@@ -1456,8 +1677,21 @@ export class Renderer {
     this.updateNameplates(fullNameplatePass);
     this.updateChatBubbles();
     markPhase('nameplates');
+    // Fiesta screen shake: trauma^2 jitter offsets the camera for the draw only.
+    let shakeX = 0, shakeY = 0;
+    if (this.shakeTrauma > 0) {
+      this.shakeElapsed += dt;
+      const intensity = this.shakeTrauma * this.shakeTrauma;
+      const t = this.shakeElapsed * 60;
+      shakeX = Math.sin(t * 1.7) * intensity * 0.6;
+      shakeY = Math.sin(t * 2.3 + 1.1) * intensity * 0.45;
+      this.camera.position.x += shakeX;
+      this.camera.position.y += shakeY;
+      this.shakeTrauma = Math.max(0, this.shakeTrauma - dt * 1.8);
+    }
     if (this.post) this.post.render();
     else this.webgl.render(this.scene, this.camera);
+    if (shakeX !== 0 || shakeY !== 0) { this.camera.position.x -= shakeX; this.camera.position.y -= shakeY; }
     markPhase('submit');
     this.recordRendererPhase('total', performance.now() - totalStart);
   }
@@ -1588,6 +1822,22 @@ export class Renderer {
     this.cameraLookAt.set(px, eyeY, pz);
     this.camera.lookAt(this.cameraLookAt);
     this.camera.updateMatrixWorld();
+
+    // Spatial-audio listener (at the camera, facing the player) + ambience state.
+    const sink = this.audioSink;
+    if (sink) {
+      const cpx = this.camera.position.x, cpy = this.camera.position.y, cpz = this.camera.position.z;
+      let fx = px - cpx, fy = eyeY - cpy, fz = pz - cpz;
+      const fl = Math.hypot(fx, fy, fz) || 1;
+      sink.setListener(cpx, cpy, cpz, fx / fl, fy / fl, fz / fl);
+      const inDungeon = px > DUNGEON_X_THRESHOLD;
+      const biome = zoneBiomeAt(pz);
+      const precip = !this.weatherOn || inDungeon ? null : biome === 'peaks' ? 'snow' : biome === 'marsh' ? 'rain' : null;
+      // Only at the water's edge / in it — sampled at the player, so a loose
+      // threshold made the loop bleed across the low marsh from far off.
+      const nearWater = !inDungeon && groundHeight(px, pz, seed) < WATER_LEVEL + 0.4;
+      sink.ambience(biome, inDungeon, precip, nearWater);
+    }
   }
 
   private updateNameplates(fullPass: boolean): void {

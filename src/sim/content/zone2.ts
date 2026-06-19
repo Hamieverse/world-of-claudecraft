@@ -327,8 +327,9 @@ export const ZONE2_NPCS: Record<string, NpcDef> = {
     id: 'brother_aldric_fen', name: 'Brother Aldric', title: 'Priest of the Vale',
     pos: { x: -8, z: 296 }, facing: 0.8, color: 0xf7f9f9,
     questIds: [
-      'q_idols', 'q_drowned', 'q_drowned_censers', 'q_no_rest', 'q_summoners',
-      'q_bastion_door', 'q_mistcaller', 'q_highwatch_summons',
+      'q_aldrics_fallen_star', 'q_idols', 'q_drowned', 'q_drowned_censers',
+      'q_no_rest', 'q_summoners', 'q_bastion_door', 'q_mistcaller',
+      'q_highwatch_summons',
     ],
     greeting: 'The Light keep you above the water, $N. The dead in this fen do not sleep — they wade.',
   },
@@ -423,6 +424,16 @@ export const ZONE2_QUESTS: Record<string, QuestDef> = {
     objectives: [{ type: 'collect', itemId: 'waterlogged_idol', count: 5, label: 'Waterlogged Idol' }],
     xpReward: 1050, copperReward: 400, itemRewards: {},
     requiresQuest: 'q_deepfen',
+  },
+  q_aldrics_fallen_star: {
+    id: 'q_aldrics_fallen_star', name: "Aldric's Fallen Star",
+    giverNpcId: 'brother_aldric_fen', turnInNpcId: 'brother_aldric_fen',
+    text: 'I saw a rock fall out of the western sky, $N. It struck the marsh wall and burst like a forge, far beyond the widow thicket. Go west, find what survived the explosion, and bring me anything that does not belong to this world.',
+    completionText: 'This is no weapon I know. Look at how the plates fold. It may be a rare piece of armor, if it can be worn at all. Take it and try it on, $N, but be careful.',
+    objectives: [{ type: 'collect', itemId: 'unknown_alien_weaponry', count: 1, label: 'Unknown Alien Weaponry' }],
+    xpReward: 900, copperReward: 300,
+    itemRewards: { warrior: 'alien_armor_plate', mage: 'alien_armor_plate', rogue: 'alien_armor_plate' },
+    minLevel: 6,
   },
   q_deepfen_purge: {
     id: 'q_deepfen_purge', name: 'Back to the Shallows',
@@ -583,7 +594,7 @@ export const ZONE2_QUESTS: Record<string, QuestDef> = {
 
 export const ZONE2_QUEST_ORDER = [
   'q_fenbridge_muster', 'q_prowlers', 'q_prowler_pelts', 'q_fen_supplies',
-  'q_the_codfather', 'q_deepfen', 'q_idols', 'q_deepfen_purge', 'q_widows', 'q_broodmother',
+  'q_the_codfather', 'q_deepfen', 'q_idols', 'q_aldrics_fallen_star', 'q_deepfen_purge', 'q_widows', 'q_broodmother',
   'q_drowned', 'q_drowned_censers', 'q_no_rest', 'q_trolls', 'q_troll_fetishes',
   'q_grubjaw', 'q_cult_camp', 'q_summoners', 'q_deacon', 'q_bastion_door',
   'q_olen', 'q_mistcaller',
@@ -654,6 +665,11 @@ export const ZONE2_OBJECTS: GroundObjectDef[] = [
     name: 'Bastion Ward Stone',
     positions: [{ x: 43, z: 512 }, { x: 48, z: 517 }],
   },
+  {
+    itemId: 'unknown_alien_weaponry',
+    name: 'Smoldering Meteor Debris',
+    positions: [{ x: 151.8, z: 294.2 }],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -679,7 +695,18 @@ export const ZONE2_ITEMS: Record<string, ItemDef> = {
   grubjaw_tusk: { id: 'grubjaw_tusk', name: "Grubjaw's Tusk", kind: 'quest', sellValue: 0, questId: 'q_grubjaw' },
   cult_cipher: { id: 'cult_cipher', name: 'Gravecaller Cipher', kind: 'quest', sellValue: 0, questId: 'q_summoners' },
   bastion_ward_stone: { id: 'bastion_ward_stone', name: 'Bastion Ward Stone', kind: 'quest', sellValue: 0, questId: 'q_bastion_door' },
+  unknown_alien_weaponry: { id: 'unknown_alien_weaponry', name: 'Unknown Alien Weaponry', kind: 'quest', quality: 'rare', sellValue: 0, questId: 'q_aldrics_fallen_star' },
   // --- quest reward gear (uncommon) ---
+  alien_armor_plate: {
+    id: 'alien_armor_plate', name: 'Alien Armor Plate', kind: 'tool', quality: 'rare',
+    use: { type: 'skinSelect', catalog: 'mech' },
+    sellValue: 0, noVendorSell: true, noDiscard: true, noMarketList: true,
+  },
+  amber_crimson_armor_plate: {
+    id: 'amber_crimson_armor_plate', name: 'Amber Crimson', kind: 'tool', quality: 'uncommon',
+    use: { type: 'mechChroma', chromaId: 'amber_crimson' },
+    sellValue: 0, noVendorSell: true, noDiscard: true, noMarketList: true,
+  },
   deacons_cleaver: {
     id: 'deacons_cleaver', name: "Deacon's Cleaver", kind: 'weapon', slot: 'mainhand', quality: 'uncommon',
     weapon: { min: 11, max: 18, speed: 2.4 }, stats: { str: 4 }, sellValue: 300, requiredClass: WAR,

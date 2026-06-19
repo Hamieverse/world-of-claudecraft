@@ -150,6 +150,38 @@ export const ko_KR: EnTranslations = {
       }
     }
   },
+  "skinEvent": {
+    "title": "Cosmetic Cache",
+    "subtitle": "You unlocked a {rank} reward — choose any skin at or below it.",
+    "optionAria": "{rank} skin {index}",
+    "locked": "Locked",
+    "lockedHint": "Requires a {rank} roll",
+    "unavailable": "Coming soon",
+    "rolled": "You rolled {rank}",
+    "previewHint": "Drag to rotate",
+    "lockIn": "Lock In",
+    "close": "Close",
+    "unlocked": "Cosmetic unlocked!",
+    "unequip": "Unequip",
+    "previewOnly": "Preview only — full unlock coming soon",
+    "mech": {
+      "amber_crimson": "Amber Crimson",
+      "crimson_amber": "Crimson Amber",
+      "cyan_magenta": "Cyan Magenta",
+      "magenta_cyan": "Magenta Cyan",
+      "orange_steel": "Orange Steel",
+      "steel_orange": "Steel Orange",
+      "forest_pink": "Forest Pink",
+      "pink_forest": "Pink Forest",
+      "amethyst_silver": "Amethyst Silver",
+      "ivory_copper": "Ivory Copper",
+      "onyx_gold": "Onyx Gold",
+      "imperial_crimson": "Imperial Crimson",
+      "imperial_gold": "Imperial Gold",
+      "vanguard_azure": "Vanguard Azure",
+      "vanguard_chrome": "Vanguard Chrome"
+    }
+  },
   "nav": {
     "home": "홈",
     "play": "플레이",
@@ -307,6 +339,173 @@ export const ko_KR: EnTranslations = {
     "emoteWheel": "감정표현 휠 길게 누르기",
     "friends": "친구 및 길드",
     "chat": "채팅창 열기"
+  },
+  "fiesta": {
+    "bracket": "Fiesta",
+    "enterQueue": "Join the Fiesta!",
+    "practice": "🎉 Practice vs Bots",
+    "practiceNote": "Offline practice: spawns 3 AI bots and queues you for a 2v2 Fiesta. Click again to stop.",
+    "banner": {
+      "wave": "WAVE {wave}/{total} — CHOOSE AN AUGMENT!",
+      "augmentGained": "Augment gained: {name}!",
+      "powerup": "{name}!"
+    },
+    "log": {
+      "augmentGained": "You gain the {name} augment!",
+      "allyAugment": "{player} chose the {name} augment.",
+      "welcome": "Welcome to the 2v2 FIESTA! Score takedowns, grab augments, survive the ring!",
+      "go": "FIESTA — GO!",
+      "over": "FIESTA OVER! What a party. Returning to the world…",
+      "powerup": "{player} grabbed {name}!"
+    },
+    "category": {
+      "offense": "Offense",
+      "defense": "Defense",
+      "sustain": "Sustain",
+      "mobility": "Mobility",
+      "utility": "Utility"
+    },
+    "pending": {
+      "label": "Augment ready — pick it on your next death!"
+    },
+    "powerup": {
+      "pow_speed_demon": {
+        "name": "Speed Demon"
+      },
+      "pow_colossus": {
+        "name": "Colossus"
+      },
+      "pow_moon_boots": {
+        "name": "Moon Boots"
+      },
+      "pow_berserker": {
+        "name": "Berserker"
+      }
+    },
+    "queue": {
+      "join": "You join the 2v2 Fiesta queue. Get ready to PARTY…",
+      "leave": "You leave the 2v2 Fiesta queue.",
+      "teamLeave": "Your team leaves the 2v2 Fiesta queue."
+    },
+    "error": {
+      "leaderOnly": "Only the party leader may queue your team for {label}.",
+      "premadeTwo": "A {label} premade requires a party of exactly two.",
+      "noAugment": "You have no augment to choose right now.",
+      "notOnOffer": "That augment is not on offer."
+    },
+    "score": {
+      "title": "FIESTA",
+      "toWin": "First to {n}",
+      "aria": "Fiesta score: your team {mine}, enemy team {theirs}, first to {limit} wins."
+    },
+    "respawn": {
+      "title": "DOWNED!",
+      "sub": "Back in the fight in…"
+    },
+    "end": {
+      "win": "FIESTA WON! 🎉 What a party!",
+      "loss": "FIESTA LOST! Run it back!",
+      "draw": "FIESTA DRAW! Too close to call!"
+    },
+    "augment": {
+      "choose": "Choose an Augment",
+      "aug_brutality": {
+        "name": "Brutality",
+        "desc": "Your physical strikes hit 15% harder."
+      },
+      "aug_spellfire": {
+        "name": "Spellfire",
+        "desc": "Your spells deal 15% more damage."
+      },
+      "aug_toughness": {
+        "name": "Toughness",
+        "desc": "Gain 12% maximum health."
+      },
+      "aug_keen_eye": {
+        "name": "Keen Eye",
+        "desc": "Gain 8% critical strike chance."
+      },
+      "aug_fleetfoot": {
+        "name": "Fleetfoot",
+        "desc": "Move 15% faster. Run them down — or run away."
+      },
+      "aug_ironhide": {
+        "name": "Ironhide",
+        "desc": "Gain 250 armor and 5% dodge."
+      },
+      "aug_mending": {
+        "name": "Mending",
+        "desc": "Your healing is 20% more potent."
+      },
+      "aug_warlords_might": {
+        "name": "Warlord's Might",
+        "desc": "+25% physical damage and +10% crit. Become the threat."
+      },
+      "aug_arcane_surge": {
+        "name": "Arcane Surge",
+        "desc": "+25% spell damage and +10% crit. Light them up."
+      },
+      "aug_vampirism": {
+        "name": "Vampirism",
+        "desc": "Heal for 15% of all damage you deal. Sustain through chaos."
+      },
+      "aug_juggernaut": {
+        "name": "Juggernaut",
+        "desc": "+20% maximum health and +400 armor. Immovable."
+      },
+      "aug_bloodhunter": {
+        "name": "Bloodhunter",
+        "desc": "+18% damage of all kinds and +12% move speed."
+      },
+      "aug_lightwell": {
+        "name": "Lightwell",
+        "desc": "+30% healing and +15% maximum health. Anchor your team."
+      },
+      "aug_bounty_hunter": {
+        "name": "Bounty Hunter",
+        "desc": "Your kills are worth +1 bonus team point. Close the gap fast."
+      },
+      "aug_apex_predator": {
+        "name": "Apex Predator",
+        "desc": "+40% physical damage, +15% crit, heal for 12% of damage dealt."
+      },
+      "aug_archmage": {
+        "name": "Archmage",
+        "desc": "+45% spell damage, +15% crit, +15% maximum health."
+      },
+      "aug_unkillable": {
+        "name": "Unkillable",
+        "desc": "+40% maximum health, +600 armor, heal for 10% of damage dealt."
+      },
+      "aug_overdrive": {
+        "name": "Overdrive",
+        "desc": "+30% all damage, +20% crit, +20% move speed. FIESTA!"
+      },
+      "aug_avatar": {
+        "name": "Avatar of War",
+        "desc": "+25% all damage, +25% maximum health, +300 armor. Walk it down."
+      },
+      "aug_ascendant": {
+        "name": "Ascendant",
+        "desc": "+45% healing, +25% spell damage, +20% maximum health."
+      }
+    },
+    "tier": {
+      "silver": "Silver",
+      "gold": "Gold",
+      "prismatic": "Prismatic"
+    },
+    "word": {
+      "kill": "TAKEDOWN!",
+      "firstblood": "FIRST BLOOD!",
+      "doublekill": "DOUBLE KILL!",
+      "shutdown": "SHUTDOWN!",
+      "spree": "{n}× SPREE!",
+      "revived": "BACK IN!",
+      "ringclose": "RING CLOSING!",
+      "wave": "AUGMENTS!",
+      "dodge": "DODGE!"
+    }
   },
   "seo": {
     "title": "World of ClaudeCraft: 클래식 스타일 웹 MMO",
@@ -518,7 +717,23 @@ export const ko_KR: EnTranslations = {
       "releaseSpirit": "영혼 풀어주기",
       "chatTab": "채팅",
       "combatLogTab": "전투 기록",
-      "chatPlaceholder": "메시지 입력... (/w 이름 귓속말, /r 답장, /p 파티, /gu 길드, /o 장교, /g 일반)",
+      "chatPlaceholder": "메시지 입력... (/w 이름 귓속말, /r 답장, /p 파티, /gu 길드, /o 장교, /general 일반)",
+      "chatChannels": {
+        "add": "Add chat channel",
+        "addTitle": "Add channel",
+        "close": "Close {channel} tab",
+        "sendingTo": "Message {channel}",
+        "names": {
+          "say": "Say",
+          "yell": "Yell",
+          "party": "Party",
+          "general": "General",
+          "world": "World",
+          "lfg": "LFG",
+          "guild": "Guild",
+          "officer": "Officer"
+        }
+      },
       "communityLinks": "커뮤니티 링크",
       "mobileControls": "모바일 조작",
       "mobileMove": "이동",
@@ -596,6 +811,8 @@ export const ko_KR: EnTranslations = {
       "interfaceNote": "이 옵션은 자신의 화면에만 적용되며 이 기기에 저장됩니다.",
       "soundEffects": "효과음",
       "musicVolume": "음악 음량",
+      "voiceVolume": "Voice Volume",
+      "npcVoices": "NPC Voices",
       "music": "음악",
       "keybindHelp": "키 칸을 클릭한 뒤 지정할 키를 누르세요. Esc는 취소입니다. 각 행동에는 기본 키와 보조 키가 있습니다.",
       "keybindCapture": "\"{action}\"에 사용할 키를 누르세요...",
@@ -2369,6 +2586,66 @@ export const ko_KR: EnTranslations = {
       "mossy_handwraps": {
         "name": "이끼 낀 손싸개"
       },
+      "crossroads_saber": {
+        "name": "갈림길 세이버"
+      },
+      "tradesman_hatchet": {
+        "name": "상인의 손도끼"
+      },
+      "drovers_staff": {
+        "name": "목동의 지팡이"
+      },
+      "caravan_warden_dirk": {
+        "name": "대상 경비병 단검"
+      },
+      "outrider_brigandine": {
+        "name": "척후병 브리간딘"
+      },
+      "caravan_quilted_vest": {
+        "name": "대상 누비 조끼"
+      },
+      "wanderers_chestguard": {
+        "name": "방랑자의 가슴 보호구"
+      },
+      "outrider_legguards": {
+        "name": "척후병 다리 보호구"
+      },
+      "trail_leggings": {
+        "name": "닳아버린 여정 각반"
+      },
+      "pilgrims_leggings": {
+        "name": "순례자의 각반"
+      },
+      "outrider_sabatons": {
+        "name": "척후병 사바톤"
+      },
+      "milepost_boots": {
+        "name": "이정표 장화"
+      },
+      "glade_pelt": {
+        "name": "숲속 가죽"
+      },
+      "soft_down": {
+        "name": "부드러운 솜털 뭉치"
+      },
+      "amber_hide": {
+        "name": "호박색 가죽"
+      },
+      "stag_antler": {
+        "name": "가지진 사슴뿔"
+      },
+      "brightwood_venison": {
+        "name": "브라이트우드 사슴고기"
+      },
+      "bramblehide_jerkin": {
+        "name": "가시가죽 저킨"
+      },
+      "monarch_crown_helm": {
+        "name": "군주의 왕관"
+      },
+      "monarch_heart": {
+        "name": "군주의 심장"
+      },
       "bristleback_maul": {
         "name": "뻣센등뼈 철퇴"
       },
@@ -2737,6 +3014,18 @@ export const ko_KR: EnTranslations = {
       },
       "kings_signet": {
         "name": "왕의 인장 반지"
+      },
+      "event_skin_token": {
+        "name": "신비한 외형 상자"
+      },
+      "unknown_alien_weaponry": {
+        "name": "알 수 없는 외계 무기"
+      },
+      "alien_armor_plate": {
+        "name": "외계 갑옷 판"
+      },
+      "amber_crimson_armor_plate": {
+        "name": "호박 진홍"
       }
     },
     "mobs": {
@@ -2901,6 +3190,39 @@ export const ko_KR: EnTranslations = {
       },
       "bound_guardian": {
         "name": "속박된 수호자"
+      },
+      "brightwood_hare": {
+        "name": "Brightwood Hare"
+      },
+      "glade_fox": {
+        "name": "Glade Fox"
+      },
+      "spotted_fawn": {
+        "name": "Spotted Fawn"
+      },
+      "meadow_crane": {
+        "name": "Meadow Crane"
+      },
+      "thornpelt_badger": {
+        "name": "Thornpelt Badger"
+      },
+      "dawnmane_doe": {
+        "name": "Dawnmane Doe"
+      },
+      "bramble_lynx": {
+        "name": "Bramble Lynx"
+      },
+      "brightwood_stag": {
+        "name": "Brightwood Stag"
+      },
+      "grovetusk_boar": {
+        "name": "Grovetusk Boar"
+      },
+      "sunhide_bear": {
+        "name": "Sunhide Bear"
+      },
+      "brightwood_monarch": {
+        "name": "The Brightwood Monarch"
       },
       "elder_bristleback": {
         "name": "늙은 뻣센등뼈"
@@ -3115,6 +3437,11 @@ export const ko_KR: EnTranslations = {
         "name": "현자 캐디스",
         "title": "현자",
         "greeting": "느슨한 혈암을 조심하십시오, {className}. 산이 요즘 불안정해졌고, 나는 그 이유를 알고 싶습니다."
+      },
+      "ranger_elwyn": {
+        "name": "Ranger Elwyn",
+        "title": "Glade Warden",
+        "greeting": "Quiet, {className} - the glade is calm today, and I mean to keep it that way."
       },
       "tidewatcher_ondrel": {
         "name": "온드렐 베인",
@@ -3356,6 +3683,16 @@ export const ko_KR: EnTranslations = {
         "objectives": {
           "0": {
             "label": "물먹은 우상"
+          }
+        }
+      },
+      "q_aldrics_fallen_star": {
+        "title": "알드릭의 떨어진 별",
+        "text": "저는 서쪽 하늘에서 바위가 떨어지는 것을 보았습니다, {playerName}. 그것은 습지의 벽을 치고 대장간처럼 폭발했으며, 과부 숲 너머 먼 곳이었습니다. 서쪽으로 가서 폭발 뒤에 남은 것을 찾고, 이 세계의 것이 아닌 것은 무엇이든 가져오십시오.",
+        "completion": "제가 아는 무기는 아닙니다. 판들이 접히는 모양을 보십시오. 착용할 수 있다면 드문 갑옷 조각일지도 모릅니다. 가져가서 입어 보십시오, {playerName}. 다만 조심하십시오.",
+        "objectives": {
+          "0": {
+            "label": "알 수 없는 외계 무기"
           }
         }
       },
@@ -3845,6 +4182,135 @@ export const ko_KR: EnTranslations = {
           }
         }
       },
+      "q_brightwood_thinning": {
+        "title": "Thinning the Glade",
+        "text": "Brightwood Glade is overrun, {playerName}. The bramble lynx breed faster than I can cull them, and the herds trample what little grazing is left. Slay 8 Bramble Lynx and bring me 6 Glade Pelts so I can judge the health of the rest.",
+        "completion": "Good. The pride is thinned and these pelts are sound - the glade will hold another season.",
+        "objectives": {
+          "0": {
+            "label": "Bramble Lynx slain"
+          },
+          "1": {
+            "label": "Glade Pelt"
+          }
+        }
+      },
+      "q_brightwood_monarch": {
+        "title": "The Brightwood Monarch",
+        "text": "There is one beast I will not loose an arrow at alone: the Brightwood Monarch, the great stag that rules the deep glade. He has grown old and savage, goring any who near his hollow. He is more than a match for one hunter - bring a friend or two. Lay him to rest and bring me his heart, {playerName}.",
+        "completion": "So the old king has fallen. A heavy thing, this - but a kinder end than the wolves would have given him. Wear this crown of his antlers with respect, {playerName}.",
+        "objectives": {
+          "0": {
+            "label": "The Monarch's Heart"
+          }
+        }
+      },
+      "q_ledger_first_duty": {
+        "title": "A Warden's First Duty",
+        "text": "You want to earn your keep in Eastbrook, {playerName}? Then start where every warden starts. The boars in the west meadow have grown fat and fearless, rooting up the spring planting. Cull 8 Wild Boar and the ledger will remember your name.",
+        "completion": "Eight boars and the planting saved. Good. Every name in this ledger started just where you are standing.",
+        "objectives": {
+          "0": {
+            "label": "Wild Boar culled"
+          }
+        }
+      },
+      "q_ledger_teeth": {
+        "title": "Teeth in the Dark",
+        "text": "The wolf packs have learned the patrol routes - they hit at dusk, when the light is thin and a lone traveler is easy meat. Break them, {playerName}. Slay 10 Forest Wolves and let the packs learn a new lesson.",
+        "completion": "Ten wolves, and the dusk road is ours again. The ledger grows kinder to you.",
+        "objectives": {
+          "0": {
+            "label": "Forest Wolf slain"
+          }
+        }
+      },
+      "q_ledger_reedwater": {
+        "title": "Reedwater Patrol",
+        "text": "Redbrook sent you? Good - these old bones cannot wade the shallows anymore. The Mudfin have crept back to the reedwater and they are bolder than ever. Thin them: 8 Mudfin Skulkers, and mind the deep water.",
+        "completion": "That will keep the gurgling devils off my nets for a season. Tell the Marshal the lake is quiet again.",
+        "objectives": {
+          "0": {
+            "label": "Mudfin Skulker slain"
+          }
+        }
+      },
+      "q_ledger_silk": {
+        "title": "Silk and Venom",
+        "text": "The ledger marks the eastern woods as warden ground too. The Webwood lurkers spin thicker every week - a child wandered too close last market day and we cut her free barely breathing. Kill 8 Webwood Lurkers before they take the wood entirely.",
+        "completion": "Eight fewer spinners in the dark. The wood breathes easier, and so do I.",
+        "objectives": {
+          "0": {
+            "label": "Webwood Lurker slain"
+          }
+        }
+      },
+      "q_ledger_brood": {
+        "title": "The Spawning Dark",
+        "text": "Killing the lurkers only made room for the brood. The Sableweb hatchlings are pouring out of the deep nest, and a hundred small fangs kill a traveler as surely as one great one. Crush 8 Sableweb Hatchlings before they grow.",
+        "completion": "A grim work, drowning a nest. But mercy now is a hundred funerals spared later. The ledger is square.",
+        "objectives": {
+          "0": {
+            "label": "Sableweb Hatchling crushed"
+          }
+        }
+      },
+      "q_ledger_deepvermin": {
+        "title": "Vermin in the Deep",
+        "text": "The Marshal's ledger says you clear pests. Well, my dig has the worst of them. The tunnel rats breed faster than my crew can swing a pick - put down 12 Tunnel Rat Diggers and maybe we strike copper before winter.",
+        "completion": "Twelve of the candle-headed vermin, gone! Right, lads - back down the shaft. You have earned the Marshal a good word, {playerName}.",
+        "objectives": {
+          "0": {
+            "label": "Tunnel Rat Digger slain"
+          }
+        }
+      },
+      "q_ledger_toll": {
+        "title": "The Highwaymen's Toll",
+        "text": "The southeast hills have become a bandit's toll road - they rob anyone fool enough to travel light. The ledger has a price on every one of them. Bring Eastbrook justice to 8 Vale Bandits.",
+        "completion": "Eight bandits answered for. Word is already spreading that the toll road has a new keeper - and he does not take coin, he takes heads.",
+        "objectives": {
+          "0": {
+            "label": "Vale Bandit brought to justice"
+          }
+        }
+      },
+      "q_ledger_vigil": {
+        "title": "Vigil at the Chapel",
+        "text": "The Marshal sends his wardens to me when the trouble is past the reach of swords alone. The chapel dead will not lie still, and I am too old to stand the night vigil. Keep it for me, {playerName} - lay 10 Restless Bones back to their rest.",
+        "completion": "Ten souls returned to the earth, and a night of peace bought for the chapel. The Light remembers such vigils, even when the ledger forgets.",
+        "objectives": {
+          "0": {
+            "label": "Restless Bones laid to rest"
+          }
+        }
+      },
+      "q_ledger_great_boar": {
+        "title": "The Great Bristleback",
+        "text": "There is an old bull boar in the western thickets - the Elder Bristleback, hide like bark and a temper to match. He has gored two of my hide-runners. Bring him down and clear 6 of the lesser Wild Boar that shelter behind him, and I will see your name set high in the ledger.",
+        "completion": "The Elder Bristleback, dead by your hand! That hide alone is worth a season of trade. You have made the ledger proud, {playerName}.",
+        "objectives": {
+          "0": {
+            "label": "Elder Bristleback slain"
+          },
+          "1": {
+            "label": "Wild Boar of the herd slain"
+          }
+        }
+      },
+      "q_ledger_outlaw_captain": {
+        "title": "The Outlaw Captain",
+        "text": "The last name in the ledger is the one I have wanted crossed out for a year: Captain Verlan, who turned half the Vale to banditry. He shelters behind his lieutenants in the southeast camp. Cut down 6 Vale Bandits to reach him, then end Verlan himself. Do not go alone.",
+        "completion": "Captain Verlan, dead, and his coat brought to my door. The ledger is closed, {playerName} - and the Vale will tell wardens-to-come the name of the one who closed it.",
+        "objectives": {
+          "0": {
+            "label": "Vale Bandit cut down"
+          },
+          "1": {
+            "label": "Captain Verlan slain"
+          }
+        }
+      },
       "q_mogger_tracks": {
         "title": "모거의 흔적",
         "text": "북쪽 길을 떠나기 전에 이스트브룩에는 마지막 골칫거리, 모거가 남았습니다. 그 짐승은 아래 초원을 짓밟고 멧돼지를 미치게 합니다. 흔적 주변의 초원을 정리해 은신처를 찾아내십시오.",
@@ -3957,6 +4423,9 @@ export const ko_KR: EnTranslations = {
           },
           "7": {
             "label": "무너진 예배당"
+          },
+          "8": {
+            "label": "Brightwood Glade"
           }
         }
       },

@@ -25,7 +25,7 @@ function baseEntity(id: number, pos: Vec3): Entity {
     spawnPos: { ...pos }, leashAnchor: null, evadeStall: 0, fleeTimer: 0, hasFled: false, wanderTarget: null, wanderTimer: 0,
     aggroTargetId: null, respawnTimer: 0, corpseTimer: 0, lootable: false, loot: null,
     xpValue: 0, questIds: [], vendorItems: [], objectItemId: null, dungeonId: null,
-    dead: false, scale: 1, color: 0xffffff, skin: 0,
+    dead: false, scale: 1, color: 0xffffff, skinCatalog: 'class', skin: 0,
   };
 }
 
@@ -89,6 +89,7 @@ export function recalcPlayerStats(e: Entity, cls: PlayerClass, equipment: Player
   let bonusDodge = 0;
   let bearForm = false;
   let catForm = false;
+  let scaleMul = 1; // Fiesta buff_scale: body-size multiplier (>1 also adds hp)
   for (const a of e.auras) {
     if (a.kind === 'buff_ap') bonusAp += a.value;
     else if (a.kind === 'buff_armor') s.armor += a.value;
@@ -99,6 +100,7 @@ export function recalcPlayerStats(e: Entity, cls: PlayerClass, equipment: Player
     else if (a.kind === 'buff_allstats') {
       s.str += a.value; s.agi += a.value; s.sta += a.value; s.int += a.value; s.spi += a.value;
     } else if (a.kind === 'buff_dodge') bonusDodge += a.value;
+    else if (a.kind === 'buff_scale') scaleMul *= a.value;
     else if (a.kind === 'form_bear') bearForm = true;
     else if (a.kind === 'form_cat') catForm = true;
   }
@@ -149,8 +151,12 @@ export function recalcPlayerStats(e: Entity, cls: PlayerClass, equipment: Player
   const hpFrac = e.maxHp > 0 ? e.hp / e.maxHp : 1;
   e.maxHp = def.baseHp + def.hpPerLevel * (lvl - 1) + hpFromStamina(s.sta);
   if (mods?.stats.maxHpPct) e.maxHp = Math.round(e.maxHp * (1 + mods.stats.maxHpPct));
+  // Fiesta "Colossus"-style buffs: growing bigger also makes you tankier.
+  if (scaleMul > 1) e.maxHp = Math.round(e.maxHp * scaleMul);
   e.hp = Math.max(1, Math.round(e.maxHp * hpFrac));
   if (e.dead) e.hp = 0;
+  // Body size: players default to 1; a buff_scale aura grows/shrinks them live.
+  if (e.kind === 'player') e.scale = scaleMul;
 
   // Druid forms swap the resource bar, classic-style: bear runs on rage
   // (starts empty, fills from combat), cat on energy (starts full — friendlier

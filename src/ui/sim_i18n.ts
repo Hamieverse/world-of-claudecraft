@@ -2280,6 +2280,7 @@ const RULES: Rule[] = [
   { re: /^If you find the crypt\.\.\. end this\.$/, build: () => tQuestExtra('vossVision4') },
   { re: /^The Crypt Keystone turns cold as the seal breaks\.$/, build: () => tQuestExtra('ritualBreaks') },
   { re: /^The crypt entrance is sealed to you\.$/, build: () => tQuestExtra('cryptSealed') },
+  { re: /^That item cannot be listed on the World Market\.$/, build: () => t('itemUi.tooltip.cannotMarket') },
   { re: /^(.+) awakens!$/, build: (m) => tQuestExtra('awakens', { name: locMob(m[1]) }) },
   { re: /^Fallen Captain Aldren yells, "None shall disturb the king's rest! For Thornpeak!"$/, build: () => tQuestExtra('aldrenYell', { name: locMob('Fallen Captain Aldren') }) },
   { re: /^Corrupted Priest Malric yells, "Death shall never claim my king! The ritual must endure!"$/, build: () => tQuestExtra('malricYell', { name: locMob('Corrupted Priest Malric') }) },
@@ -2338,6 +2339,19 @@ const RULES: Rule[] = [
   { re: /^(.+) cannot queue while dueling\.$/, build: (m) => tArenaExtra('memberDueling', { name: m[1] }) },
   { re: /^(.+) must finish trading before queueing\.$/, build: (m) => tArenaExtra('memberTrading', { name: m[1] }) },
   { re: /^(.+) cannot queue from inside an instance\.$/, build: (m) => tArenaExtra('memberInstance', { name: m[1] }) },
+  // 2v2 Fiesta. The leader/premade rules are wildcards so they catch both the
+  // '2v2' and 'Fiesta' label variants (the ranked exact rules above match first
+  // at runtime; this picks up Fiesta and the i18n guard's placeholder token).
+  { re: /^You join the 2v2 Fiesta queue\. Get ready to PARTY[.…]{1,3}$/, build: () => t('fiesta.queue.join') },
+  { re: /^You leave the 2v2 Fiesta queue\.$/, build: () => t('fiesta.queue.leave') },
+  { re: /^Your team leaves the 2v2 Fiesta queue\.$/, build: () => t('fiesta.queue.teamLeave') },
+  { re: /^Only the party leader may queue your team for (.+)\.$/, build: (m) => t('fiesta.error.leaderOnly', { label: m[1] }) },
+  { re: /^(.+) premade requires a party of exactly two\.$/, build: (m) => t('fiesta.error.premadeTwo', { label: m[1] }) },
+  { re: /^You have no augment to choose right now\.$/, build: () => t('fiesta.error.noAugment') },
+  { re: /^That augment is not on offer\.$/, build: () => t('fiesta.error.notOnOffer') },
+  { re: /^Welcome to the 2v2 FIESTA! Score takedowns, grab augments, survive the ring!$/, build: () => t('fiesta.log.welcome') },
+  { re: /^FIESTA — GO!$/, build: () => t('fiesta.log.go') },
+  { re: /^FIESTA OVER! What a party\. Returning to the world[.…]{1,3}$/, build: () => t('fiesta.log.over') },
 ];
 
 // Returns the localized form of a sim-emitted message, or null if not one of ours.

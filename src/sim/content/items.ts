@@ -173,6 +173,12 @@ export const BASE_ITEMS: Record<string, ItemDef> = {
     id: 'simple_fishing_pole', name: 'Simple Fishing Pole', kind: 'tool', quality: 'common',
     use: { type: 'fishing' }, sellValue: 4, buyValue: 20,
   },
+  // Cosmetic event reward: using it rolls a rarity rank (server-side) and opens
+  // the skin-select overlay. See src/sim/content/skins.ts. Dev-grant for now.
+  event_skin_token: {
+    id: 'event_skin_token', name: 'Mysterious Cosmetic Cache', kind: 'tool', quality: 'epic',
+    use: { type: 'skinSelect', catalog: 'class' }, sellValue: 0,
+  },
   raw_mirror_trout: {
     id: 'raw_mirror_trout', name: 'Raw Mirror Trout', kind: 'food', quality: 'common',
     foodHp: 61, sellValue: 3,
@@ -393,6 +399,21 @@ export const BASE_ITEMS: Record<string, ItemDef> = {
   greyjaw_fang: { id: 'greyjaw_fang', name: "Old Greyjaw's Fang", kind: 'quest', sellValue: 0, questId: 'q_greyjaw' },
   weathered_ledger_page: { id: 'weathered_ledger_page', name: 'Weathered Ledger Page', kind: 'quest', sellValue: 0, questId: 'q_names_of_the_dead' },
   morthen_grimoire: { id: 'morthen_grimoire', name: "Morthen's Grimoire", kind: 'quest', sellValue: 0, questId: 'q_gravecallers_trail' },
+  monarch_heart: { id: 'monarch_heart', name: "The Monarch's Heart", kind: 'quest', sellValue: 0, questId: 'q_brightwood_monarch' },
+  // --- Brightwood Glade wildlife pack ---
+  glade_pelt: { id: 'glade_pelt', name: 'Glade Pelt', kind: 'junk', quality: 'poor', sellValue: 6 },
+  soft_down: { id: 'soft_down', name: 'Soft Down Tuft', kind: 'junk', quality: 'poor', sellValue: 4 },
+  amber_hide: { id: 'amber_hide', name: 'Amber Hide', kind: 'junk', quality: 'poor', sellValue: 9 },
+  stag_antler: { id: 'stag_antler', name: 'Branching Antler', kind: 'junk', quality: 'poor', sellValue: 8 },
+  brightwood_venison: { id: 'brightwood_venison', name: 'Brightwood Venison', kind: 'food', quality: 'common', foodHp: 92, sellValue: 4, buyValue: 35 },
+  bramblehide_jerkin: {
+    id: 'bramblehide_jerkin', name: 'Bramblehide Jerkin', kind: 'armor', slot: 'chest', quality: 'uncommon',
+    stats: { armor: 40, sta: 2, agi: 1 }, sellValue: 120,
+  },
+  monarch_crown_helm: {
+    id: 'monarch_crown_helm', name: "Monarch's Crown", kind: 'armor', slot: 'helmet', quality: 'rare',
+    stats: { armor: 46, sta: 3, agi: 2, str: 1 }, sellValue: 320,
+  },
   // --- junk (gray) ---
   wolf_fang: { id: 'wolf_fang', name: 'Cracked Wolf Fang', kind: 'junk', quality: 'poor', sellValue: 4 },
   bandit_bandana: { id: 'bandit_bandana', name: 'Red Bandana', kind: 'junk', quality: 'poor', sellValue: 6 },
@@ -456,6 +477,60 @@ export const BASE_ITEMS: Record<string, ItemDef> = {
   mossy_handwraps: {
     id: 'mossy_handwraps', name: 'Mossgrown Handwraps', kind: 'armor', slot: 'gloves', quality: 'uncommon',
     stats: { armor: 12, int: 1, spi: 2 }, sellValue: 140, requiredClass: MAG,
+  },
+  // --- Crossroads Outfitters ----------------------------------------------
+  // A travelling caravan quartermaster's standing stock, filling the slots the
+  // Quartermaster's Consignment left thin: mainhand weapons plus chest, legs and
+  // feet. All uncommon, Eastbrook-tier (~L8-12); most are unrestricted so any
+  // melee adventurer can outfit a full set. The Merchant keeps eight on the
+  // World Market (see seedHouseListings); four more drop around the Vale.
+  crossroads_saber: {
+    id: 'crossroads_saber', name: 'Crossroads Saber', kind: 'weapon', slot: 'mainhand', quality: 'uncommon',
+    weapon: { min: 8, max: 14, speed: 2.5 }, stats: { str: 2 }, sellValue: 170,
+  },
+  tradesman_hatchet: {
+    id: 'tradesman_hatchet', name: "Tradesman's Hatchet", kind: 'weapon', slot: 'mainhand', quality: 'uncommon',
+    weapon: { min: 7, max: 13, speed: 2.3 }, stats: { str: 1, sta: 1 }, sellValue: 160,
+  },
+  drovers_staff: {
+    id: 'drovers_staff', name: "Drover's Staff", kind: 'weapon', slot: 'mainhand', quality: 'uncommon',
+    weapon: { min: 9, max: 15, speed: 3.0 }, stats: { int: 3, spi: 2 }, sellValue: 175, requiredClass: MAG,
+  },
+  caravan_warden_dirk: {
+    id: 'caravan_warden_dirk', name: 'Caravan Warden Dirk', kind: 'weapon', slot: 'mainhand', quality: 'uncommon',
+    weapon: { min: 5, max: 9, speed: 1.7, dagger: true }, stats: { agi: 3 }, sellValue: 170, requiredClass: ROG,
+  },
+  outrider_brigandine: {
+    id: 'outrider_brigandine', name: 'Outrider Brigandine', kind: 'armor', slot: 'chest', quality: 'uncommon',
+    stats: { armor: 95, str: 1, sta: 2 }, sellValue: 165,
+  },
+  caravan_quilted_vest: {
+    id: 'caravan_quilted_vest', name: 'Caravan Quilted Vest', kind: 'armor', slot: 'chest', quality: 'uncommon',
+    stats: { armor: 40, sta: 2 }, sellValue: 130,
+  },
+  wanderers_chestguard: {
+    id: 'wanderers_chestguard', name: "Wanderer's Chestguard", kind: 'armor', slot: 'chest', quality: 'uncommon',
+    stats: { armor: 60, agi: 2, sta: 1 }, sellValue: 150,
+  },
+  outrider_legguards: {
+    id: 'outrider_legguards', name: 'Outrider Legguards', kind: 'armor', slot: 'legs', quality: 'uncommon',
+    stats: { armor: 70, sta: 2 }, sellValue: 150,
+  },
+  trail_leggings: {
+    id: 'trail_leggings', name: 'Trailworn Leggings', kind: 'armor', slot: 'legs', quality: 'uncommon',
+    stats: { armor: 45, agi: 2 }, sellValue: 120,
+  },
+  pilgrims_leggings: {
+    id: 'pilgrims_leggings', name: "Pilgrim's Leggings", kind: 'armor', slot: 'legs', quality: 'uncommon',
+    stats: { armor: 24, int: 2, spi: 1 }, sellValue: 120,
+  },
+  outrider_sabatons: {
+    id: 'outrider_sabatons', name: 'Outrider Sabatons', kind: 'armor', slot: 'feet', quality: 'uncommon',
+    stats: { armor: 55, sta: 2 }, sellValue: 130,
+  },
+  milepost_boots: {
+    id: 'milepost_boots', name: 'Milepost Boots', kind: 'armor', slot: 'feet', quality: 'uncommon',
+    stats: { armor: 30, agi: 1, sta: 1 }, sellValue: 110,
   },
 };
 

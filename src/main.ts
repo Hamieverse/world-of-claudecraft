@@ -7,6 +7,8 @@ import { MobileControls, PHONE_TOUCH_QUERY, isPhoneTouchDevice } from './game/mo
 import { Hud } from './ui/hud';
 import { audio } from './game/audio';
 import { music } from './game/music';
+import { voice } from './game/voice';
+import { sfx } from './game/sfx';
 import { activePvpOpponentIds, handlePickedEntity, hoverCursorKind, isAttackableEntity } from './game/interactions';
 import { clickMoveShouldCancel, clickMoveShouldWalk, clickMoveStep, distance2d, latencyAdjustedStopDistance, stepAngleToward } from './game/click_move';
 import { Api, ClientWorld, CharacterSummary, type ReleaseEntry } from './net/online';
@@ -571,6 +573,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
   const perf = createPerfMonitor(null);
   try {
     renderer = new Renderer(world, canvas, nameplates);
+    renderer.setAudioSink(sfx);
     perf.setRenderer(renderer);
     hud = new Hud(world, renderer, keybinds);
     perf.setHud(hud);
@@ -581,6 +584,9 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     fatalOverlay(t('loading.rendererFailed', { error: technicalErrorMessage(err) }));
     return;
   }
+
+  // Offline only: expose the dev "2v2 Fiesta vs Bots" practice toggle to the HUD.
+  if (offlineSim) hud.setFiestaPracticeHook(() => offlineSim.startFiestaPractice());
 
   const chatInput = $('#chat-input') as unknown as HTMLInputElement;
   const clickMoveMarker = $('#click-move-marker') as HTMLDivElement;
@@ -598,14 +604,22 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     recoverFromMobileKeyboard();
   };
   function openChat(): void {
+    // reflect the active chat-channel tab in the placeholder (e.g. "Message World")
+    chatInput.placeholder = hud.activeChatPlaceholder();
     chatInput.style.display = 'block';
     chatInput.focus();
   }
   chatInput.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') {
-      const text = chatInput.value.trim();
+      // the active channel tab supplies the send prefix, so plain text goes to
+      // that channel without the player retyping "/world" etc.
+      const raw = chatInput.value;
+      const text = hud.composeChatSend(raw);
       if (text) world.chat(text);
+      // a typed "/join world"/"/leave lfg" opens or closes its channel tab too,
+      // mirroring the "+" menu (without hijacking the active send channel)
+      hud.syncChatTabsForInput(raw);
       closeChat();
     } else if (e.key === 'Escape') {
       closeChat();
@@ -753,12 +767,17 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
       input.setInvertLookY(settings.set('invertLookY', !!value));
       return;
     }
+    if (key === 'voiceEnabled') {
+      voice.setEnabled(settings.set('voiceEnabled', !!value));
+      return;
+    }
     const v = settings.set(key as keyof typeof SETTING_RANGES, value as number);
     switch (key) {
       case 'cameraSpeed': input.setCameraSpeed(v); break;
       case 'touchLookSpeed': input.setTouchLookSpeed(v); break;
-      case 'sfxVolume': audio.setVolume(v); break;
+      case 'sfxVolume': audio.setVolume(v); sfx.setVolume(v); break;
       case 'musicVolume': music.setVolume(v); break;
+      case 'voiceVolume': voice.setVolume(v); break;
       case 'brightness': renderer.setBrightness(v); break;
       case 'cameraFov': renderer.setCameraFov(v); break;
       case 'renderScale': renderer.setRenderScale(v); break;
@@ -1227,6 +1246,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
         Object.assign(offlineSim.moveInput, mi);
         const stepFacing = movementFacing ?? facing;
         if (stepFacing !== null) offlineSim.player.facing = stepFacing;
+        offlineSim.updateFiestaBots(); // dev: steer Fiesta practice bots (no-op unless active)
         perf.markInputSent(performance.now());
         const events = perf.time('sim', () => offlineSim.tick());
         perf.time('events', () => hud.handleEvents(events));
@@ -1263,6 +1283,7 @@ async function startGame(world: IWorld, offlineSim: Sim | null, online: ClientWo
     perf.time('events', () => hud.handleEvents(net.drainEvents()));
     if (net.consumeProfanityChanged()) hud.setProfanityWords(net.profanityWords);
     if (net.consumeInventoryChanged()) hud.onInventoryChanged();
+    if (net.consumeCosmeticsChanged()) hud.onCosmeticsChanged();
     const alpha = net.lastSnapAt > 0
       ? Math.min(1.25, (performance.now() - net.lastSnapAt) / Math.max(20, net.snapInterval))
       : 1;
@@ -1993,6 +2014,7 @@ async function enterWorld(c: CharacterSummary, button?: HTMLButtonElement): Prom
     if (!(await prepareWorldEntry())) return;
     audio.init();
     music.init();
+    sfx.init();
     enterLoadingState(t('loading.connectingRealm'));
   } finally {
     if (!hasBegunWorldEntry && button) {
@@ -2776,6 +2798,7 @@ function wireStartScreens(): void {
 
     audio.init();
     music.init();
+    sfx.init();
     const name = sanitizeOfflineName(rawName);
     void startOffline(cls, name, selectedSkin('#offline-skin-row', offlineSkin));
   };

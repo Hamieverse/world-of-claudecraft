@@ -309,6 +309,7 @@ describe("i18n Localization Key Coverage", () => {
     base: 14,
     rested: 18,
     buyer: "Mira",
+    channel: "World",
     classes: "Warrior, Mage",
     className: "Mage",
     command: "/dance",
@@ -1208,7 +1209,10 @@ describe("i18n Localization Key Coverage", () => {
     }
     expect(html).toContain('data-i18n-content="seo.description"');
     expect(html).toContain('data-i18n-placeholder="hud.core.chatPlaceholder"');
-    expect(html).toContain('data-i18n="hud.core.chatTab"');
+    // The chat tabs (Chat / Combat Log / per-channel) are rendered by the HUD
+    // via t() rather than static markup, so #chatlog-tabs is an empty tablist
+    // here. Its labels are localized in hud.ts (initChatTabs), not in index.html.
+    expect(html).toContain('id="chatlog-tabs"');
     expect(html).toContain('data-i18n="entities.zones.eastbrook_vale.name"');
     expect(html).toContain('data-i18n-title="itemUi.bags.title"');
     expect(html).toContain('data-i18n-aria="hud.core.mobileControls"');
