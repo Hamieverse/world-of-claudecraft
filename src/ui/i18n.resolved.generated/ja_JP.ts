@@ -334,6 +334,41 @@ export const ja_JP: EnTranslations = {
         "many": "Who：{realm}に{count}人のプレイヤーがオンラインです。",
         "other": "Who：{realm}に{count}人のプレイヤーがオンラインです。"
       }
+    },
+    "account": {
+      "title": "アカウント",
+      "loggedOutPrompt": "アカウントを管理するにはログインしてください。",
+      "memberSince": "登録日：{date}",
+      "walletBalance": "{amount} $WOC",
+      "sectionSettings": "アカウント設定",
+      "sectionWallet": "$WOC ウォレット",
+      "sectionCharacters": "キャラクター",
+      "sectionDanger": "危険な操作",
+      "changePassword": "パスワードの変更",
+      "currentPassword": "現在のパスワード",
+      "newPassword": "新しいパスワード",
+      "savePassword": "パスワードを更新",
+      "passwordChanged": "パスワードを更新しました。他のデバイスからログアウトされました。",
+      "errCurrentRequired": "現在のパスワードを入力してください。",
+      "errPasswordShort": "新しいパスワードは6文字以上にしてください。",
+      "errPasswordUnchanged": "新しいパスワードは現在のものと異なる必要があります。",
+      "emailLabel": "メールアドレス（任意）",
+      "emailHint": "アカウント復旧にのみ使用します。宣伝メールは一切送信しません。",
+      "saveEmail": "メールを保存",
+      "emailSaved": "メールを保存しました。",
+      "errEmailInvalid": "有効なメールアドレスを入力してください。",
+      "charactersSummary": "キャラクターを管理してワールドに入りましょう。",
+      "goToCharacters": "キャラクターを表示",
+      "walletSummary": "Solana ウォレットを認証してプレイヤーカードに保有者バッジを表示します。",
+      "manageWallet": "ウォレットを管理",
+      "deactivate": "アカウントを無効化",
+      "deactivateWarning": "無効化するとアカウントがロックされ、すべてのデバイスからログアウトされます。復元するには管理者に連絡してください。ユーザー名とパスワードを再入力して確認してください。",
+      "confirmUsername": "確認のためユーザー名を入力",
+      "confirmPassword": "パスワード",
+      "deactivateConfirm": "アカウントを無効化する",
+      "deactivated": "アカウントが無効化されました。",
+      "logOut": "ログアウト",
+      "logOutSummary": "このデバイスからログアウトします。"
     }
   },
   "skinEvent": {
@@ -378,6 +413,7 @@ export const ja_JP: EnTranslations = {
     "news": "ニュース",
     "download": "ダウンロード",
     "loginRegister": "ログイン/登録",
+    "account": "アカウント",
     "donate": "寄付"
   },
   "stats": {

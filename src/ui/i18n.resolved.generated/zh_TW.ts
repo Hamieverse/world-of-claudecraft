@@ -334,6 +334,41 @@ export const zh_TW: EnTranslations = {
         "many": "查詢：{realm} 上有 {count} 名玩家在線上。",
         "other": "查詢：{realm} 上有 {count} 名玩家在線上。"
       }
+    },
+    "account": {
+      "title": "帳號",
+      "loggedOutPrompt": "登入以管理您的帳號。",
+      "memberSince": "註冊於 {date}",
+      "walletBalance": "{amount} $WOC",
+      "sectionSettings": "帳號設定",
+      "sectionWallet": "$WOC 錢包",
+      "sectionCharacters": "角色",
+      "sectionDanger": "危險區域",
+      "changePassword": "變更密碼",
+      "currentPassword": "目前密碼",
+      "newPassword": "新密碼",
+      "savePassword": "更新密碼",
+      "passwordChanged": "密碼已更新。其他裝置已登出。",
+      "errCurrentRequired": "請輸入目前密碼。",
+      "errPasswordShort": "新密碼至少需要 6 個字元。",
+      "errPasswordUnchanged": "新密碼必須與目前密碼不同。",
+      "emailLabel": "電子郵件（選填）",
+      "emailHint": "僅用於帳號復原。我們絕不寄送行銷郵件。",
+      "saveEmail": "儲存電子郵件",
+      "emailSaved": "電子郵件已儲存。",
+      "errEmailInvalid": "請輸入有效的電子郵件地址。",
+      "charactersSummary": "管理您的角色並進入遊戲世界。",
+      "goToCharacters": "查看角色",
+      "walletSummary": "驗證 Solana 錢包以在玩家卡片上顯示持有者標誌。",
+      "manageWallet": "管理錢包",
+      "deactivate": "停用帳號",
+      "deactivateWarning": "停用將鎖定您的帳號並在所有裝置上登出。請聯絡管理員以還原。請重新輸入使用者名稱和密碼以確認。",
+      "confirmUsername": "輸入您的使用者名稱以確認",
+      "confirmPassword": "密碼",
+      "deactivateConfirm": "停用我的帳號",
+      "deactivated": "您的帳號已停用。",
+      "logOut": "登出",
+      "logOutSummary": "登出目前的裝置。"
     }
   },
   "skinEvent": {
@@ -378,6 +413,7 @@ export const zh_TW: EnTranslations = {
     "news": "最新消息",
     "download": "下載客戶端",
     "loginRegister": "登入/註冊",
+    "account": "帳號",
     "donate": "捐贈"
   },
   "stats": {

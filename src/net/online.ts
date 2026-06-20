@@ -80,7 +80,15 @@ export interface ReleaseEntry {
   publishedAt: string; // ISO 8601
 }
 
+export interface AccountInfo {
+  username: string;
+  email: string;
+  createdAt: string;
+  characterCount: number;
+}
+
 export class Api {
+  private static readonly SESSION_KEY = 'woc_session';
   token: string | null = null;
   username: string | null = null;
   realm: string | null = null;
@@ -164,6 +172,55 @@ export class Api {
     const data = await this.post('/api/login', { username, password, turnstileToken });
     this.token = data.token;
     this.username = data.username;
+  }
+
+  // ── Persistent session (home-page account portal) ──────────────────────────
+  // The bearer token + username are cached in localStorage so a reload restores
+  // the logged-in nav state. The token is always re-validated server-side via
+  // getAccount() before it is trusted; a 401 there means the caller should clear.
+  saveSession(): void {
+    if (!this.token || !this.username) return;
+    try {
+      localStorage.setItem(Api.SESSION_KEY, JSON.stringify({ token: this.token, username: this.username }));
+    } catch { /* storage may be unavailable (private mode); session stays in-memory */ }
+  }
+
+  restoreSession(): boolean {
+    try {
+      const raw = localStorage.getItem(Api.SESSION_KEY);
+      if (!raw) return false;
+      const data = JSON.parse(raw) as { token?: unknown; username?: unknown };
+      if (typeof data.token !== 'string' || typeof data.username !== 'string') return false;
+      this.token = data.token;
+      this.username = data.username;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  clearSession(): void {
+    this.token = null;
+    this.username = null;
+    try { localStorage.removeItem(Api.SESSION_KEY); } catch { /* ignore */ }
+  }
+
+  // whoami — returns the current account, or throws on a 401 (expired/revoked).
+  async getAccount(): Promise<AccountInfo> {
+    return this.get('/api/account');
+  }
+
+  async changePassword(current: string, next: string): Promise<void> {
+    await this.post('/api/account/password', { current, next });
+  }
+
+  async setEmail(email: string): Promise<string> {
+    const data = await this.post('/api/account/email', { email });
+    return typeof data.email === 'string' ? data.email : '';
+  }
+
+  async deactivateAccount(username: string, password: string): Promise<void> {
+    await this.post('/api/account/deactivate', { username, password });
   }
 
   async characters(): Promise<CharacterSummary[]> {

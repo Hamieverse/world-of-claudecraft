@@ -2440,6 +2440,68 @@
     transform: translateY(8px);
   }
 
+  /* Account portal (logged-in "Account" nav tab) */
+  .account-portal {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: var(--spacing-lg) var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+  }
+  .account-portal-head {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+  .account-id {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: center;
+  }
+  #account-username { font-size: 1.4rem; font-weight: 700; }
+  .account-meta { font-size: 0.85rem; opacity: 0.75; }
+  .account-balance {
+    align-self: center;
+    padding: 4px 14px;
+    border: 1px solid var(--color-gold, #d4af37);
+    border-radius: 999px;
+    color: var(--color-gold, #d4af37);
+    font-weight: 600;
+  }
+  .account-logged-out { text-align: center; opacity: 0.8; }
+  .account-sections {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--spacing-md);
+  }
+  @media (min-width: 760px) {
+    .account-sections { grid-template-columns: 1fr 1fr; }
+    /* Settings + Danger zone span the full width; short cards pair up. */
+    .account-card:first-child, .account-card-danger { grid-column: 1 / -1; }
+  }
+  .account-card {
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(212, 175, 55, 0.28);
+    border-radius: 10px;
+    padding: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+  .account-card-danger { border-color: rgba(180, 60, 60, 0.55); }
+  .account-card-title { margin: 0; font-size: 1.05rem; }
+  .account-form-title { margin: var(--spacing-sm) 0 0; font-size: 0.95rem; opacity: 0.9; }
+  .account-form { display: flex; flex-direction: column; gap: var(--spacing-sm); }
+  .account-summary, .account-hint { opacity: 0.78; font-size: 0.88rem; margin: 0; }
+  .account-form .btn { align-self: flex-start; }
+  .auth-field-msg { font-size: 0.85rem; min-height: 1.1em; aria-live: polite; }
+  .auth-field-msg.is-error { color: #e88; }
+  .auth-field-msg.is-ok { color: #8d8; }
+
   /* Hero view specific layout */
   #hero-view {
     display: flex;
@@ -7536,6 +7598,9 @@
             <li class="nav-item">
               <button type="button" class="nav-link" id="nav-btn-login" aria-selected="false" aria-pressed="false" data-i18n="nav.loginRegister">Login/Register</button>
             </li>
+            <li class="nav-item" id="nav-item-account" hidden>
+              <button type="button" class="nav-link" id="nav-btn-account" aria-selected="false" aria-pressed="false" data-i18n="nav.account">Account</button>
+            </li>
           </ul>
         </nav>
 
@@ -7930,6 +7995,90 @@
           <h2 class="skeleton-title" data-i18n="download.title">Download Desktop Launcher</h2>
           <p class="skeleton-desc" data-i18n="download.desc">Get the standalone launcher for optimized performance and full-screen play.</p>
           <div class="coming-soon-badge" data-i18n="comingSoon.placeholder">Coming Soon...</div>
+        </div>
+      </section>
+
+      <section id="account-view" class="view-section" hidden aria-hidden="true">
+        <div class="account-portal">
+          <header class="account-portal-head">
+            <h2 class="auth-title" data-i18n="hudChrome.account.title">Account</h2>
+            <div class="account-id">
+              <span id="account-username" class="gold"></span>
+              <span id="account-member-since" class="account-meta"></span>
+            </div>
+            <div id="account-balance" class="account-balance" hidden></div>
+          </header>
+
+          <p id="account-logged-out" class="account-logged-out" hidden data-i18n="hudChrome.account.loggedOutPrompt">Log in to manage your account.</p>
+
+          <div id="account-sections" class="account-sections">
+            <!-- Account Settings: password + email -->
+            <section class="account-card">
+              <h3 class="account-card-title" data-i18n="hudChrome.account.sectionSettings">Account Settings</h3>
+              <form id="account-password-form" class="account-form" novalidate>
+                <h4 class="account-form-title" data-i18n="hudChrome.account.changePassword">Change Password</h4>
+                <div class="auth-field">
+                  <label for="account-current-pass" class="auth-label" data-i18n="hudChrome.account.currentPassword">Current password</label>
+                  <input id="account-current-pass" type="password" maxlength="128" autocomplete="current-password" />
+                </div>
+                <div class="auth-field">
+                  <label for="account-new-pass" class="auth-label" data-i18n="hudChrome.account.newPassword">New password</label>
+                  <input id="account-new-pass" type="password" maxlength="128" autocomplete="new-password" />
+                </div>
+                <div id="account-password-msg" class="auth-field-msg" aria-live="polite"></div>
+                <button type="submit" class="btn btn-primary" data-i18n="hudChrome.account.savePassword">Update Password</button>
+              </form>
+
+              <form id="account-email-form" class="account-form" novalidate>
+                <div class="auth-field">
+                  <label for="account-email" class="auth-label" data-i18n="hudChrome.account.emailLabel">Email (optional)</label>
+                  <input id="account-email" type="email" maxlength="254" autocomplete="email" />
+                  <p class="account-hint" data-i18n="hudChrome.account.emailHint">Used only for account recovery. We never send marketing email.</p>
+                </div>
+                <div id="account-email-msg" class="auth-field-msg" aria-live="polite"></div>
+                <button type="submit" class="btn btn-secondary" data-i18n="hudChrome.account.saveEmail">Save Email</button>
+              </form>
+            </section>
+
+            <!-- Wallet / $WOC -->
+            <section class="account-card">
+              <h3 class="account-card-title" data-i18n="hudChrome.account.sectionWallet">$WOC Wallet</h3>
+              <p class="account-summary" data-i18n="hudChrome.account.walletSummary">Verify a Solana wallet to show holder flair on your player card.</p>
+              <button type="button" class="btn btn-secondary" id="account-manage-wallet" data-i18n="hudChrome.account.manageWallet">Manage Wallet</button>
+            </section>
+
+            <!-- Characters -->
+            <section class="account-card">
+              <h3 class="account-card-title" data-i18n="hudChrome.account.sectionCharacters">Characters</h3>
+              <p class="account-summary" data-i18n="hudChrome.account.charactersSummary">Manage your characters and enter the world.</p>
+              <button type="button" class="btn btn-primary" id="account-go-characters" data-i18n="hudChrome.account.goToCharacters">View Characters</button>
+            </section>
+
+            <!-- Log out -->
+            <section class="account-card">
+              <h3 class="account-card-title" data-i18n="hudChrome.account.logOut">Log Out</h3>
+              <p class="account-summary" data-i18n="hudChrome.account.logOutSummary">Sign out of this device.</p>
+              <button type="button" class="btn btn-secondary" id="account-logout" data-i18n="hudChrome.account.logOut">Log Out</button>
+            </section>
+
+            <!-- Danger zone: deactivate -->
+            <section class="account-card account-card-danger">
+              <h3 class="account-card-title" data-i18n="hudChrome.account.sectionDanger">Danger Zone</h3>
+              <p class="account-summary" data-i18n="hudChrome.account.deactivateWarning">Deactivation locks your account and signs you out everywhere. Contact an admin to restore it. Confirm by re-entering your username and password.</p>
+              <form id="account-deactivate-form" class="account-form" novalidate>
+                <div class="auth-field">
+                  <label for="account-deactivate-user" class="auth-label" data-i18n="hudChrome.account.confirmUsername">Type your username to confirm</label>
+                  <input id="account-deactivate-user" type="text" maxlength="24" autocomplete="off" />
+                </div>
+                <div class="auth-field">
+                  <label for="account-deactivate-pass" class="auth-label" data-i18n="hudChrome.account.confirmPassword">Password</label>
+                  <input id="account-deactivate-pass" type="password" maxlength="128" autocomplete="off" />
+                </div>
+                <div id="account-deactivate-msg" class="auth-field-msg" aria-live="polite"></div>
+                <button type="submit" class="btn btn-danger" id="account-deactivate-btn" disabled data-i18n="hudChrome.account.deactivateConfirm">Deactivate My Account</button>
+              </form>
+            </section>
+          </div>
         </div>
       </section>
     </div>

@@ -228,4 +228,48 @@ export const hudChromeStrings = {
       other: "Who: {count} players online on {realm}.",
     },
   },
+  // Home-page account portal (the logged-in "Account" nav tab). Lives here in the
+  // English-only hud_chrome domain so an English-only PR compiles; translations
+  // live in the overlays like any other hudChrome.* key.
+  account: {
+    title: "Account",
+    loggedOutPrompt: "Log in to manage your account.",
+    memberSince: "Member since {date}",
+    walletBalance: "{amount} $WOC",
+    sectionSettings: "Account Settings",
+    sectionWallet: "$WOC Wallet",
+    sectionCharacters: "Characters",
+    sectionDanger: "Danger Zone",
+    // Change password
+    changePassword: "Change Password",
+    currentPassword: "Current password",
+    newPassword: "New password",
+    savePassword: "Update Password",
+    passwordChanged: "Password updated. Other devices have been signed out.",
+    errCurrentRequired: "Enter your current password.",
+    errPasswordShort: "New password must be at least 6 characters.",
+    errPasswordUnchanged: "New password must be different from the current one.",
+    // Email
+    emailLabel: "Email (optional)",
+    emailHint: "Used only for account recovery. We never send marketing email.",
+    saveEmail: "Save Email",
+    emailSaved: "Email saved.",
+    errEmailInvalid: "Enter a valid email address.",
+    // Characters
+    charactersSummary: "Manage your characters and enter the world.",
+    goToCharacters: "View Characters",
+    // Wallet
+    walletSummary: "Verify a Solana wallet to show holder flair on your player card.",
+    manageWallet: "Manage Wallet",
+    // Deactivate
+    deactivate: "Deactivate Account",
+    deactivateWarning: "Deactivation locks your account and signs you out everywhere. Contact an admin to restore it. Confirm by re-entering your username and password.",
+    confirmUsername: "Type your username to confirm",
+    confirmPassword: "Password",
+    deactivateConfirm: "Deactivate My Account",
+    deactivated: "Your account has been deactivated.",
+    // Log out
+    logOut: "Log Out",
+    logOutSummary: "Sign out of this device.",
+  },
 };

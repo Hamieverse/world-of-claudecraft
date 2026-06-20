@@ -89,6 +89,7 @@ export const en = {
     news: "News",
     download: "Download",
     loginRegister: "Login/Register",
+    account: "Account",
     donate: "Donate",
   },
   stats: {

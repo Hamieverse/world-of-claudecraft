@@ -334,6 +334,41 @@ export const zh_CN: EnTranslations = {
         "many": "查询：{realm}上有{count}名玩家在线。",
         "other": "查询：{realm}上有{count}名玩家在线。"
       }
+    },
+    "account": {
+      "title": "账户",
+      "loggedOutPrompt": "登录以管理您的账户。",
+      "memberSince": "注册于 {date}",
+      "walletBalance": "{amount} $WOC",
+      "sectionSettings": "账户设置",
+      "sectionWallet": "$WOC 钱包",
+      "sectionCharacters": "角色",
+      "sectionDanger": "危险区域",
+      "changePassword": "修改密码",
+      "currentPassword": "当前密码",
+      "newPassword": "新密码",
+      "savePassword": "更新密码",
+      "passwordChanged": "密码已更新。其他设备已登出。",
+      "errCurrentRequired": "请输入当前密码。",
+      "errPasswordShort": "新密码至少需要 6 个字符。",
+      "errPasswordUnchanged": "新密码必须与当前密码不同。",
+      "emailLabel": "邮箱（可选）",
+      "emailHint": "仅用于账户找回。我们绝不发送营销邮件。",
+      "saveEmail": "保存邮箱",
+      "emailSaved": "邮箱已保存。",
+      "errEmailInvalid": "请输入有效的邮箱地址。",
+      "charactersSummary": "管理您的角色并进入游戏世界。",
+      "goToCharacters": "查看角色",
+      "walletSummary": "验证 Solana 钱包以在玩家卡片上显示持有者标识。",
+      "manageWallet": "管理钱包",
+      "deactivate": "注销账户",
+      "deactivateWarning": "注销将锁定您的账户并在所有设备上登出。请联系管理员以恢复。请重新输入用户名和密码以确认。",
+      "confirmUsername": "输入您的用户名以确认",
+      "confirmPassword": "密码",
+      "deactivateConfirm": "注销我的账户",
+      "deactivated": "您的账户已注销。",
+      "logOut": "退出登录",
+      "logOutSummary": "退出当前设备的登录。"
     }
   },
   "skinEvent": {
@@ -378,6 +413,7 @@ export const zh_CN: EnTranslations = {
     "news": "新闻资讯",
     "download": "下载客户端",
     "loginRegister": "登录/注册",
+    "account": "账户",
     "donate": "捐赠"
   },
   "stats": {

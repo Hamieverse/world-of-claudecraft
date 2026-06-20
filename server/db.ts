@@ -78,6 +78,8 @@ ALTER TABLE accounts ADD COLUMN IF NOT EXISTS created_user_agent TEXT;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_login_ip TEXT;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS last_login_user_agent TEXT;
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS cosmetics JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS accounts_created_at ON accounts(created_at DESC);
 CREATE INDEX IF NOT EXISTS accounts_created_ip_created ON accounts(created_ip, created_at DESC);
 CREATE INDEX IF NOT EXISTS accounts_created_user_agent_created ON accounts(created_user_agent, created_at DESC);
@@ -451,6 +453,60 @@ export async function accountForToken(token: string): Promise<number | null> {
   return res.rows[0]?.account_id ?? null;
 }
 
+export interface AccountInfoRow {
+  id: number;
+  username: string;
+  password_hash: string;
+  email: string | null;
+  created_at: string;
+  deactivated_at: string | null;
+}
+
+// Full account record by id — used by the self-service account portal
+// (whoami, password change, email, deactivate). Distinct from findAccount,
+// which keys on username for the login path.
+export async function accountById(accountId: number): Promise<AccountInfoRow | null> {
+  const res = await pool.query(
+    'SELECT id, username, password_hash, email, created_at, deactivated_at FROM accounts WHERE id = $1',
+    [accountId],
+  );
+  return res.rows[0] ?? null;
+}
+
+export async function characterCountForAccount(accountId: number): Promise<number> {
+  const res = await pool.query(
+    `SELECT COUNT(*)::int AS count FROM characters WHERE account_id = $1 AND realm = $2`,
+    [accountId, REALM],
+  );
+  return res.rows[0]?.count ?? 0;
+}
+
+export async function updatePasswordHash(accountId: number, passwordHash: string): Promise<void> {
+  await pool.query('UPDATE accounts SET password_hash = $2 WHERE id = $1', [accountId, passwordHash]);
+}
+
+// Revoke every token for an account except (optionally) the one in hand.
+// A password change keeps the current device signed in (pass its token);
+// a deactivate revokes everything (pass null).
+export async function revokeTokensExcept(accountId: number, keepToken: string | null): Promise<void> {
+  if (keepToken) {
+    await pool.query('DELETE FROM auth_tokens WHERE account_id = $1 AND token <> $2', [accountId, keepToken]);
+  } else {
+    await pool.query('DELETE FROM auth_tokens WHERE account_id = $1', [accountId]);
+  }
+}
+
+export async function setAccountEmail(accountId: number, email: string | null): Promise<void> {
+  await pool.query('UPDATE accounts SET email = $2 WHERE id = $1', [accountId, email]);
+}
+
+export async function setAccountDeactivated(accountId: number, deactivated: boolean): Promise<void> {
+  await pool.query(
+    `UPDATE accounts SET deactivated_at = ${deactivated ? 'now()' : 'NULL'} WHERE id = $1`,
+    [accountId],
+  );
+}
+
 // ── Non-custodial Solana wallet links ──────────────────────────────────────
 
 export interface WalletLinkRow {
@@ -660,7 +716,7 @@ export async function lifetimeXpStanding(
 
 export async function moderationStatusForAccount(accountId: number): Promise<AccountModerationStatus> {
   const res = await pool.query(
-    `SELECT banned_at, suspended_until, moderation_reason, chat_muted_until, chat_strikes
+    `SELECT banned_at, suspended_until, moderation_reason, chat_muted_until, chat_strikes, deactivated_at
      FROM accounts WHERE id = $1`,
     [accountId],
   );
@@ -673,6 +729,19 @@ export async function moderationStatusForAccount(accountId: number): Promise<Acc
     ? mutedUntilDate.toISOString()
     : null;
   const chatStrikes = Number(row.chat_strikes ?? 0);
+  // A self-deactivated account is locked out of login + WS auth (same gate as
+  // banned/suspended) until an admin reactivates it.
+  if (row.deactivated_at) {
+    return {
+      locked: true,
+      banned: false,
+      suspendedUntil: null,
+      reason: '',
+      message: 'This account has been deactivated.',
+      chatMutedUntil,
+      chatStrikes,
+    };
+  }
   if (row.banned_at) {
     return {
       locked: true,

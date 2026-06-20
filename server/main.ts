@@ -8,6 +8,7 @@ import {
   pruneChatLogs, pruneClientPerfReports, searchCharacters, characterCountsByRealm, moderationStatusForAccount, renameCharacter,
   findCharacterReportTargetByName, topArenaRatings, topLifetimeXp, chatMuteStatusForAccount, loadAccountCosmetics,
   referralCountForAccount, primarySlugForAccount, lifetimeXpStanding, isAdminAccount,
+  accountById, characterCountForAccount, updatePasswordHash, revokeTokensExcept, setAccountEmail, setAccountDeactivated,
 } from './db';
 import { virtualLevel } from '../src/sim/types';
 import { Sim } from '../src/sim/sim';
@@ -205,6 +206,13 @@ async function bearerAccount(req: http.IncomingMessage): Promise<number | null> 
   const m = /^Bearer ([a-f0-9]{64})$/.exec(auth);
   if (!m) return null;
   return accountForToken(m[1]);
+}
+
+// Raw bearer token string (or null) — needed when an account action must keep
+// the caller's own session alive while revoking the rest (password change).
+function bearerToken(req: http.IncomingMessage): string | null {
+  const m = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization ?? '');
+  return m ? m[1] : null;
 }
 
 async function bearerActiveAccount(req: http.IncomingMessage, res: http.ServerResponse): Promise<number | null> {
@@ -586,6 +594,70 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
       const limit = Math.max(1, Math.min(RELEASES_SIZE, Number(params.get('limit')) || RELEASES_SIZE));
       const entries = await getReleases();
       return json(res, 200, { repo: GITHUB_REPO, releases: entries.slice(0, limit) });
+    }
+    // Account self-service portal — all bearer-auth, account-scoped.
+    // whoami: re-validates a stored token on reload + feeds the portal header.
+    if (req.method === 'GET' && url === '/api/account') {
+      const accountId = await bearerActiveAccount(req, res);
+      if (accountId === null) return;
+      const acct = await accountById(accountId);
+      if (!acct) return json(res, 404, { error: 'account not found' });
+      const characterCount = await characterCountForAccount(accountId);
+      return json(res, 200, {
+        username: acct.username,
+        email: acct.email ?? '',
+        createdAt: acct.created_at,
+        characterCount,
+      });
+    }
+    // Change password: re-verify current, then revoke every OTHER token so a
+    // password change signs out other devices while keeping this one alive.
+    if (req.method === 'POST' && url === '/api/account/password') {
+      const accountId = await bearerActiveAccount(req, res);
+      if (accountId === null) return;
+      const body = await readBody(req);
+      const acct = await accountById(accountId);
+      if (!acct) return json(res, 404, { error: 'account not found' });
+      if (!(await verifyPassword(String(body.current ?? ''), acct.password_hash))) {
+        return json(res, 401, { error: 'current password is incorrect' });
+      }
+      if (!validPassword(body.next)) return json(res, 400, { error: 'password must be at least 6 chars' });
+      await updatePasswordHash(accountId, await hashPassword(body.next));
+      await revokeTokensExcept(accountId, bearerToken(req));
+      return json(res, 200, { ok: true });
+    }
+    // Optional account email — settings-only, lenient, no sending. Empty clears.
+    if (req.method === 'POST' && url === '/api/account/email') {
+      const accountId = await bearerActiveAccount(req, res);
+      if (accountId === null) return;
+      const body = await readBody(req);
+      const raw = typeof body.email === 'string' ? body.email.trim() : '';
+      if (raw.length > 254 || (raw !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw))) {
+        return json(res, 400, { error: 'enter a valid email address' });
+      }
+      await setAccountEmail(accountId, raw === '' ? null : raw);
+      return json(res, 200, { email: raw });
+    }
+    // Soft-deactivate: re-confirm password + username, require all characters
+    // offline, then lock the account and revoke ALL tokens. Reversible by an admin.
+    if (req.method === 'POST' && url === '/api/account/deactivate') {
+      const accountId = await bearerActiveAccount(req, res);
+      if (accountId === null) return;
+      const body = await readBody(req);
+      const acct = await accountById(accountId);
+      if (!acct) return json(res, 404, { error: 'account not found' });
+      if (String(body.username ?? '') !== acct.username) {
+        return json(res, 400, { error: 'username does not match' });
+      }
+      if (!(await verifyPassword(String(body.password ?? ''), acct.password_hash))) {
+        return json(res, 401, { error: 'password is incorrect' });
+      }
+      const chars = await listCharacters(accountId);
+      const anyOnline = chars.some((c) => [...game.clients.values()].some((s) => s.characterId === c.id));
+      if (anyOnline) return json(res, 409, { error: 'log out all characters before deactivating' });
+      await setAccountDeactivated(accountId, true);
+      await revokeTokensExcept(accountId, null);
+      return json(res, 200, { ok: true });
     }
     // Non-custodial Solana wallet linking — all account-scoped.
     if (req.method === 'POST' && url === '/api/wallet/link/challenge') {

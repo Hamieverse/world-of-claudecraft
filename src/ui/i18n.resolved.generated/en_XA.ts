@@ -334,6 +334,41 @@ export const en_XA: EnTranslations = {
         "many": "[Ŵĥó: {count} þļáýéŕš óñļíñé óñ {realm}.]",
         "other": "[Ŵĥó: {count} þļáýéŕš óñļíñé óñ {realm}.]"
       }
+    },
+    "account": {
+      "title": "[Áççóúñţ]",
+      "loggedOutPrompt": "[Ļóĝ íñ ţó ɱáñáĝé ýóúŕ áççóúñţ.]",
+      "memberSince": "[Ɱéɱƀéŕ šíñçé {date}]",
+      "walletBalance": "[{amount} $ŴÓÇ]",
+      "sectionSettings": "[Áççóúñţ Šéţţíñĝš]",
+      "sectionWallet": "[$ŴÓÇ Ŵáļļéţ]",
+      "sectionCharacters": "[Çĥáŕáçţéŕš]",
+      "sectionDanger": "[Ðáñĝéŕ Žóñé]",
+      "changePassword": "[Çĥáñĝé Þáššŵóŕð]",
+      "currentPassword": "[Çúŕŕéñţ þáššŵóŕð]",
+      "newPassword": "[Ñéŵ þáššŵóŕð]",
+      "savePassword": "[Úþðáţé Þáššŵóŕð]",
+      "passwordChanged": "[Þáššŵóŕð úþðáţéð. Óţĥéŕ ðéʋíçéš ĥáʋé ƀééñ šíĝñéð óúţ.]",
+      "errCurrentRequired": "[Éñţéŕ ýóúŕ çúŕŕéñţ þáššŵóŕð.]",
+      "errPasswordShort": "[Ñéŵ þáššŵóŕð ɱúšţ ƀé áţ ļéášţ 6 çĥáŕáçţéŕš.]",
+      "errPasswordUnchanged": "[Ñéŵ þáššŵóŕð ɱúšţ ƀé ðíƒƒéŕéñţ ƒŕóɱ ţĥé çúŕŕéñţ óñé.]",
+      "emailLabel": "[Éɱáíļ (óþţíóñáļ)]",
+      "emailHint": "[Úšéð óñļý ƒóŕ áççóúñţ ŕéçóʋéŕý. Ŵé ñéʋéŕ šéñð ɱáŕķéţíñĝ éɱáíļ.]",
+      "saveEmail": "[Šáʋé Éɱáíļ]",
+      "emailSaved": "[Éɱáíļ šáʋéð.]",
+      "errEmailInvalid": "[Éñţéŕ á ʋáļíð éɱáíļ áððŕéšš.]",
+      "charactersSummary": "[Ɱáñáĝé ýóúŕ çĥáŕáçţéŕš áñð éñţéŕ ţĥé ŵóŕļð.]",
+      "goToCharacters": "[Ʋíéŵ Çĥáŕáçţéŕš]",
+      "walletSummary": "[Ʋéŕíƒý á Šóļáñá ŵáļļéţ ţó šĥóŵ ĥóļðéŕ ƒļáíŕ óñ ýóúŕ þļáýéŕ çáŕð.]",
+      "manageWallet": "[Ɱáñáĝé Ŵáļļéţ]",
+      "deactivate": "[Ðéáçţíʋáţé Áççóúñţ]",
+      "deactivateWarning": "[Ðéáçţíʋáţíóñ ļóçķš ýóúŕ áççóúñţ áñð šíĝñš ýóú óúţ éʋéŕýŵĥéŕé. Çóñţáçţ áñ áðɱíñ ţó ŕéšţóŕé íţ. Çóñƒíŕɱ ƀý ŕé-éñţéŕíñĝ ýóúŕ úšéŕñáɱé áñð þáššŵóŕð.]",
+      "confirmUsername": "[Ţýþé ýóúŕ úšéŕñáɱé ţó çóñƒíŕɱ]",
+      "confirmPassword": "[Þáššŵóŕð]",
+      "deactivateConfirm": "[Ðéáçţíʋáţé Ɱý Áççóúñţ]",
+      "deactivated": "[Ýóúŕ áççóúñţ ĥáš ƀééñ ðéáçţíʋáţéð.]",
+      "logOut": "[Ļóĝ Óúţ]",
+      "logOutSummary": "[Šíĝñ óúţ óƒ ţĥíš ðéʋíçé.]"
     }
   },
   "skinEvent": {
@@ -378,6 +413,7 @@ export const en_XA: EnTranslations = {
     "news": "[Ñéŵš]",
     "download": "[Ðóŵñļóáð]",
     "loginRegister": "[Ļóĝíñ/Ŕéĝíšţéŕ]",
+    "account": "[Áççóúñţ]",
     "donate": "[Ðóñáţé]"
   },
   "stats": {

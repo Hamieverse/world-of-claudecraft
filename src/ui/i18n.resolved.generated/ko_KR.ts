@@ -334,6 +334,41 @@ export const ko_KR: EnTranslations = {
         "many": "검색: {realm} 서버에 {count}명의 플레이어가 접속 중입니다.",
         "other": "검색: {realm} 서버에 {count}명의 플레이어가 접속 중입니다."
       }
+    },
+    "account": {
+      "title": "계정",
+      "loggedOutPrompt": "계정을 관리하려면 로그인하세요.",
+      "memberSince": "가입일: {date}",
+      "walletBalance": "{amount} $WOC",
+      "sectionSettings": "계정 설정",
+      "sectionWallet": "$WOC 지갑",
+      "sectionCharacters": "캐릭터",
+      "sectionDanger": "위험 구역",
+      "changePassword": "비밀번호 변경",
+      "currentPassword": "현재 비밀번호",
+      "newPassword": "새 비밀번호",
+      "savePassword": "비밀번호 업데이트",
+      "passwordChanged": "비밀번호가 업데이트되었습니다. 다른 기기에서 로그아웃되었습니다.",
+      "errCurrentRequired": "현재 비밀번호를 입력하세요.",
+      "errPasswordShort": "새 비밀번호는 6자 이상이어야 합니다.",
+      "errPasswordUnchanged": "새 비밀번호는 현재 비밀번호와 달라야 합니다.",
+      "emailLabel": "이메일(선택 사항)",
+      "emailHint": "계정 복구에만 사용됩니다. 마케팅 이메일은 보내지 않습니다.",
+      "saveEmail": "이메일 저장",
+      "emailSaved": "이메일이 저장되었습니다.",
+      "errEmailInvalid": "유효한 이메일 주소를 입력하세요.",
+      "charactersSummary": "캐릭터를 관리하고 월드에 입장하세요.",
+      "goToCharacters": "캐릭터 보기",
+      "walletSummary": "Solana 지갑을 인증하여 플레이어 카드에 보유자 표식을 표시하세요.",
+      "manageWallet": "지갑 관리",
+      "deactivate": "계정 비활성화",
+      "deactivateWarning": "비활성화하면 계정이 잠기고 모든 기기에서 로그아웃됩니다. 복원하려면 관리자에게 문의하세요. 사용자 이름과 비밀번호를 다시 입력하여 확인하세요.",
+      "confirmUsername": "확인을 위해 사용자 이름을 입력하세요",
+      "confirmPassword": "비밀번호",
+      "deactivateConfirm": "내 계정 비활성화",
+      "deactivated": "계정이 비활성화되었습니다.",
+      "logOut": "로그아웃",
+      "logOutSummary": "이 기기에서 로그아웃합니다."
     }
   },
   "skinEvent": {
@@ -378,6 +413,7 @@ export const ko_KR: EnTranslations = {
     "news": "새소식",
     "download": "다운로드",
     "loginRegister": "로그인/회원가입",
+    "account": "계정",
     "donate": "후원"
   },
   "stats": {

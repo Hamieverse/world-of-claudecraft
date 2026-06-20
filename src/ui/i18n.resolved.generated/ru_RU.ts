@@ -334,6 +334,41 @@ export const ru_RU: EnTranslations = {
         "many": "Список игроков: на {realm} в сети {count} игроков.",
         "other": "Список игроков: на {realm} в сети {count} игрока."
       }
+    },
+    "account": {
+      "title": "Аккаунт",
+      "loggedOutPrompt": "Войдите, чтобы управлять аккаунтом.",
+      "memberSince": "Дата регистрации: {date}",
+      "walletBalance": "{amount} $WOC",
+      "sectionSettings": "Настройки аккаунта",
+      "sectionWallet": "Кошелёк $WOC",
+      "sectionCharacters": "Персонажи",
+      "sectionDanger": "Опасная зона",
+      "changePassword": "Сменить пароль",
+      "currentPassword": "Текущий пароль",
+      "newPassword": "Новый пароль",
+      "savePassword": "Обновить пароль",
+      "passwordChanged": "Пароль обновлён. На других устройствах выполнен выход.",
+      "errCurrentRequired": "Введите текущий пароль.",
+      "errPasswordShort": "Новый пароль должен содержать не менее 6 символов.",
+      "errPasswordUnchanged": "Новый пароль должен отличаться от текущего.",
+      "emailLabel": "Эл. почта (необязательно)",
+      "emailHint": "Используется только для восстановления аккаунта. Мы не рассылаем рекламные письма.",
+      "saveEmail": "Сохранить почту",
+      "emailSaved": "Почта сохранена.",
+      "errEmailInvalid": "Введите корректный адрес эл. почты.",
+      "charactersSummary": "Управляйте персонажами и входите в мир.",
+      "goToCharacters": "Показать персонажей",
+      "walletSummary": "Подтвердите кошелёк Solana, чтобы показать знак держателя на карточке игрока.",
+      "manageWallet": "Управление кошельком",
+      "deactivate": "Деактивировать аккаунт",
+      "deactivateWarning": "Деактивация заблокирует ваш аккаунт и выполнит выход на всех устройствах. Для восстановления обратитесь к администратору. Подтвердите, повторно введя имя пользователя и пароль.",
+      "confirmUsername": "Введите имя пользователя для подтверждения",
+      "confirmPassword": "Пароль",
+      "deactivateConfirm": "Деактивировать мой аккаунт",
+      "deactivated": "Ваш аккаунт деактивирован.",
+      "logOut": "Выйти",
+      "logOutSummary": "Выйти на этом устройстве."
     }
   },
   "skinEvent": {
@@ -378,6 +413,7 @@ export const ru_RU: EnTranslations = {
     "news": "Новости",
     "download": "Скачать",
     "loginRegister": "Войти / Зарегистрироваться",
+    "account": "Аккаунт",
     "donate": "Пожертвовать"
   },
   "stats": {
