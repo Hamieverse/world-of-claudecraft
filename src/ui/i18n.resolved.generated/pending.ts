@@ -9,52 +9,17 @@
 // Reproducibility is checked by tests/i18n_resolved_equivalence.test.ts.
 
 export const pending: Record<string, readonly string[]> = {
-  "es": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
-  "es_ES": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
-  "fr_FR": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
-  "fr_CA": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
+  "es": [],
+  "es_ES": [],
+  "fr_FR": [],
+  "fr_CA": [],
   "en_CA": [],
-  "it_IT": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
-  "de_DE": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
+  "it_IT": [],
+  "de_DE": [],
   "zh_CN": [],
   "zh_TW": [],
   "ko_KR": [],
   "ja_JP": [],
-  "pt_BR": [
-    "hudChrome.landing.highContrast",
-    "hudChrome.landing.highContrastAria",
-    "hudChrome.options.highContrastBackground",
-    "hudChrome.options.uiScale"
-  ],
+  "pt_BR": [],
   "ru_RU": []
 };

@@ -262,6 +262,93 @@
     background: transparent;
   }
 
+  /* ---------- MMO-themed native form controls ----------
+     Global element-level theming so every slider/spinner/checkbox/textarea
+     inherits the dark-fantasy look (matches the scrollbar palette above),
+     replacing the default browser chrome. Keyed off element + type so new
+     controls are covered for free. Native <select> menus can't be themed
+     cross-browser, so those are migrated to the .ui-dd custom dropdown. */
+
+  /* Range sliders — inset groove with gold fill + a raised gem thumb. */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 18px;
+    background: transparent;
+    cursor: var(--cursor-point);
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--scrollbar-border);
+    /* gold fill up to --range-fill (set per-slider in JS), dark groove beneath */
+    background:
+      linear-gradient(180deg, #ffef9e 0%, var(--gold) 100%) no-repeat,
+      linear-gradient(180deg, #15110a 0%, #0b0b10 100%);
+    background-size: var(--range-fill, 0%) 100%, 100% 100%;
+    box-shadow: inset 0 1px 2px #000a;
+  }
+  input[type="range"]::-moz-range-track {
+    height: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--scrollbar-border);
+    background: linear-gradient(180deg, #15110a 0%, #0b0b10 100%);
+    box-shadow: inset 0 1px 2px #000a;
+  }
+  input[type="range"]::-moz-range-progress {
+    height: 6px;
+    border-radius: 3px;
+    /* gold to match the webkit fill (was the brown scrollbar palette) */
+    background: linear-gradient(180deg, #ffef9e 0%, var(--gold) 100%);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -6px; /* center the 16px thumb on the 6px track */
+    border-radius: 50%;
+    border: 1px solid #2a2008;
+    background: radial-gradient(circle at 35% 30%, #ffef9e 0%, var(--gold) 45%, #b8860b 100%);
+    box-shadow: 0 1px 3px #000b, 0 0 5px var(--color-primary-glow);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid #2a2008;
+    background: radial-gradient(circle at 35% 30%, #ffef9e 0%, var(--gold) 45%, #b8860b 100%);
+    box-shadow: 0 1px 3px #000b, 0 0 5px var(--color-primary-glow);
+  }
+  input[type="range"]:hover::-webkit-slider-thumb { background: radial-gradient(circle at 35% 30%, #fff7c8 0%, #ffe14d 45%, #c79410 100%); }
+  input[type="range"]:hover::-moz-range-thumb { background: radial-gradient(circle at 35% 30%, #fff7c8 0%, #ffe14d 45%, #c79410 100%); }
+  input[type="range"]:focus-visible { outline: none; }
+  input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--color-border-focus), 0 1px 3px #000b; }
+  input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--color-border-focus), 0 1px 3px #000b; }
+
+  /* Number inputs — drop the cramped native spinner arrows (all such inputs
+     have explicit min/max validation, so the micro-steppers add nothing but
+     browser chrome and sub-40px tap targets). */
+  input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+
+  /* Checkboxes — gold accent + themed focus ring instead of OS blue. */
+  input[type="checkbox"], input[type="radio"] { accent-color: var(--gold); cursor: var(--cursor-point); }
+  input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+    outline: 2px solid var(--color-border-focus); outline-offset: 2px;
+  }
+
+  /* Textareas — keep vertical resize but swap the native diagonal grip for a
+     themed gold corner that matches the chat-window resize grip. */
+  textarea { resize: vertical; }
+  textarea::-webkit-resizer {
+    background:
+      linear-gradient(135deg, transparent 0 46%, var(--scrollbar-border) 46% 54%, transparent 54% 71%, var(--scrollbar-border) 71% 79%, transparent 79%);
+    border-bottom-right-radius: 4px;
+  }
+
   [hidden] { display: none !important; }
   html, body {
     width: var(--app-vw); height: var(--app-vh); min-width: 100%; min-height: 100%;
@@ -526,6 +613,36 @@
     text-align: center; overflow-wrap: break-word; will-change: transform; z-index: 21; }
   .chat-bubble.yell { font-weight: bold; color: #7a1408; border-color: #c43a2a; }
 
+  /* ---------- new-adventurer tutorial ---------- */
+  .tut-card { position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+    width: 100%; max-width: 420px; box-sizing: border-box; pointer-events: auto;
+    background: var(--panel-bg); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 6px 24px #000a, inset 0 0 0 1px #ffffff10; padding: 14px 16px 12px;
+    color: #e8e2d0; z-index: 22; animation: tut-in 240ms cubic-bezier(0.22, 1, 0.36, 1); }
+  .tut-card.tut-done { border-color: var(--color-friendly); }
+  .tut-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .tut-title { font-size: 16px; font-weight: 700; letter-spacing: 0.3px;
+    color: var(--gold); text-shadow: 0 1px 2px #000; }
+  .tut-card.tut-done .tut-title { color: var(--color-friendly); }
+  .tut-step { font-size: 11px; color: #b8ad8e; white-space: nowrap; }
+  .tut-body { margin-top: 7px; font-size: 13px; line-height: 1.45; color: #d8d0bc; }
+  .tut-progress { margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--gold-dim); }
+  .tut-skip { margin-top: 11px; min-height: 40px; padding: 0 16px; width: 100%;
+    background: #1c1b14; color: #cfc6ab; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; cursor: pointer; transition: background 120ms, color 120ms; }
+  .tut-skip:hover { background: #2a2718; color: #f0e9d2; }
+  .tut-skip:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .tut-arrow { position: absolute; left: 0; top: 0; display: none; pointer-events: none;
+    font-size: 30px; line-height: 1; color: var(--gold); text-shadow: 0 0 8px #000, 0 1px 2px #000;
+    z-index: 21; will-change: transform; animation: tut-pulse 1100ms ease-in-out infinite; }
+  @keyframes tut-in { from { transform: translateX(-50%) translateY(-14px); opacity: 0; }
+    to { transform: translateX(-50%); opacity: 1; } }
+  @keyframes tut-pulse { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .tut-card { animation: none; }
+    .tut-arrow { animation: none; }
+  }
+
   /* ---------- unit frames ---------- */
   .unitframe { position: absolute; top: 12px; display: flex; gap: 0; align-items: center; }
   #player-frame {
@@ -654,6 +771,15 @@
     color: #fff; text-shadow: 1px 1px 2px #000; font-family: var(--title-font); }
   #castbar .timer { position: absolute; top: 0; right: 6px; line-height: 21px; font-size: 11px;
     color: #fff; text-shadow: 1px 1px 2px #000; font-family: var(--title-font); font-variant-numeric: tabular-nums; }
+  /* target/boss cast bar — sits under the target name+HP so the raid sees the cast */
+  #tf-castbar { position: relative; width: 100%; height: 22px; margin-top: 4px; display: none;
+    border: 2px solid var(--border); outline: 1px solid #000; border-radius: 4px; background: #100606; overflow: hidden; }
+  #tf-castbar .fill { height: 100%; width: 0%; background: linear-gradient(#ff9a8f, #c93024 60%, #73110d); box-shadow: inset 0 1px 0 #fff5; }
+  #tf-castbar.channel .fill { background: linear-gradient(#ff9a8f, #c93024 60%, #73110d); }
+  #tf-castbar .label { position: absolute; inset: 0; text-align: center; font-size: 12px; line-height: 21px;
+    color: #fff; text-shadow: 1px 1px 2px #000; font-family: var(--title-font); }
+  #tf-castbar .timer { position: absolute; top: 0; right: 6px; line-height: 21px; font-size: 11px;
+    color: #fff0d0; text-shadow: 1px 1px 2px #000; font-variant-numeric: tabular-nums; }
   /* swing timer: sits just under the cast bar, steel-on-amber to read as melee */
   #swingbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 174px; width: 220px;
     height: 12px; display: none; border: 1px solid var(--border); outline: 1px solid #000; border-radius: 3px;
@@ -1200,6 +1326,14 @@
   .ui-dd-item { padding: 5px 8px; font-size: 12px; color: #e8dcb0; border-radius: 3px; cursor: var(--cursor-point); white-space: nowrap; }
   .ui-dd-item:hover { background: #ffffff12; }
   .ui-dd-item.sel { color: var(--gold); }
+  .ui-dd-item:focus-visible { outline: none; background: #ffffff1f; color: var(--gold); box-shadow: inset 0 0 0 1px var(--color-border-focus); }
+  /* Touch: option rows are role="option" tap targets — meet the 40px / 16px floor. */
+  @media (pointer: coarse) {
+    .ui-dd-item { min-height: 40px; display: flex; align-items: center; font-size: 16px; }
+    /* The custom trigger replaces a native <select>; keep its ≥40px tap target
+       (the global coarse floor only covers input/textarea/select). */
+    .ui-dd-btn { min-height: 40px; }
+  }
   /* report dialog: dropdown drops downward (dialog sits high), full width */
   #report-window .ui-dd { display: block; }
   #report-window .ui-dd-menu { bottom: auto; top: calc(100% + 4px); }
@@ -1300,7 +1434,8 @@
     flex-direction: column;
   }
   #bags .panel-title { flex: none; }
-  #bags .bag-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  #bags .bag-grid { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   #bags .money { flex: none; display: flex; align-items: center; gap: 10px; }
   /* coins stay right-aligned whether or not the $WOC chip is present */
   #bags .money .money-inline { margin-left: auto; }
@@ -1378,8 +1513,13 @@
   .soc-sugg-item:hover, .soc-sugg-item.active { background: #2f2740; }
   .soc-sugg-item.active { box-shadow: inset 2px 0 0 var(--gold); }
   .soc-empty { color: #887c5c; font-size: 12px; padding: 10px 6px; text-align: center; }
+  .soc-empty-action { margin-top: 12px; }
   .soc-guild-head { font-family: var(--title-font); color: var(--gold); font-size: 15px; padding: 2px 4px 6px; }
   .soc-guild-head .gm { color: #998d6a; font-size: 11px; }
+  .raid-groups { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .raid-group { border-top: 1px solid #3d3218; padding-top: 6px; }
+  .raid-group:first-child { border-top: 0; padding-top: 0; }
+  .raid-row .soc-actions { margin-left: 0; }
 
   /* map */
   #map-window { padding: 14px; }
@@ -1477,12 +1617,14 @@
   .mkt-select-chevron { width: 8px; height: 8px; flex: none; border-right: 2px solid #cabb8c; border-bottom: 2px solid #cabb8c; transform: translateY(-2px) rotate(45deg); }
   .mkt-select.open .mkt-select-chevron { transform: translateY(2px) rotate(225deg); }
   .mkt-select-menu { position: absolute; left: 0; top: calc(100% + 4px); width: 100%; max-height: 236px; overflow-y: auto;
+    touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     padding: 5px; border: 1px solid #6f5a2a; border-radius: 6px; background: #140f09f7; box-shadow: 0 10px 24px #000c, inset 0 1px 0 #ffffff12; z-index: 20; }
   .mkt-select-option { width: 100%; display: block; border: 0; border-radius: 4px; background: transparent; color: #f0e4c8;
     font-family: var(--font-ui); font-size: 13px; line-height: 1.2; text-align: left; padding: 7px 8px; cursor: var(--cursor-point); }
   .mkt-select-option:hover, .mkt-select-option:focus-visible { outline: 0; background: #ffffff14; color: #ffe6a8; }
   .mkt-select-option.sel { background: #cc9a3c2e; color: var(--gold); }
-  #market-body { overflow-y: auto; flex: 1; min-height: 0; padding-right: 2px; }
+  #market-body { overflow-y: auto; flex: 1; min-height: 0; padding-right: 2px;
+    touch-action: pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .mkt-note { font-size: 11.5px; color: #b6ad8c; line-height: 1.45; margin: 2px 0 8px; font-family: Georgia, serif; }
   .mkt-row { display: grid; grid-template-columns: 30px 1fr auto auto; gap: 9px; align-items: center;
     padding: 5px 6px; border-radius: 4px; font-size: 12px; }
@@ -3973,6 +4115,48 @@
     color: #fff;
     box-shadow: 0 0 8px rgba(202, 164, 114, 0.45);
   }
+  /* Per-slot Unequip affordance in the character window (paperdoll): a corner ×
+     glyph revealed on hover/focus (always shown on touch). Also right-click the
+     slot, or drag the piece onto the bags window. */
+  .equip-slot .equip-unequip-btn {
+    margin-inline-start: auto;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid rgba(202, 164, 114, 0.42);
+    background: rgba(60, 38, 28, 0.42);
+    color: var(--color-text-secondary, #d6c1a0);
+    font-size: 20px;
+    line-height: 1;
+    font-weight: 600;
+    cursor: var(--cursor-point);
+    opacity: 0;
+    transition: border-color 0.12s, box-shadow 0.12s, color 0.12s, opacity 0.12s;
+  }
+  .equip-slot:hover .equip-unequip-btn,
+  .equip-slot:focus-within .equip-unequip-btn,
+  body.mobile-touch .equip-slot .equip-unequip-btn {
+    opacity: 1;
+  }
+  .equip-slot .equip-unequip-btn:hover,
+  .equip-slot .equip-unequip-btn:focus-visible {
+    border-color: rgba(255, 218, 160, 0.8);
+    color: #fff;
+    box-shadow: 0 0 7px rgba(202, 164, 114, 0.4);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .equip-slot .equip-unequip-btn { transition: none; }
+  }
+  /* Bags window lights up as a drop target while dragging a piece off the paperdoll. */
+  #bags.drop-target {
+    outline: 2px dashed rgba(255, 218, 160, 0.85);
+    outline-offset: -4px;
+    box-shadow: 0 0 14px rgba(202, 164, 114, 0.5);
+  }
 
   /* ---------- Premium Accessible Login Form styling ---------- */
   .auth-panel-premium {
@@ -5125,7 +5309,12 @@
   #mobile-preflight { display: none; }
   #rotate-device { display: none; }
   body.mobile-touch #game-canvas { touch-action: none; }
-  body.mobile-touch #ui { touch-action: none; }
+  /* The HUD overlay must let one-finger panning reach scrollable windows (Bag,
+     Market, etc.) on iOS — Safari intersects touch-action down the ancestor
+     chain, so `none` here would block child scroll containers and a child's
+     own `pan-y` could not re-enable it. `pan-x pan-y` still blocks pinch/
+     double-tap zoom (also guarded globally in preventMobileZoom). */
+  body.mobile-touch #ui { touch-action: pan-x pan-y; }
   body.mobile-touch.game-active,
   body.mobile-touch.game-active #ui,
   body.mobile-touch.game-active #nameplates,
@@ -7626,6 +7815,7 @@
       <div class="uf-bars">
         <div class="uf-name" id="tf-name"></div>
         <div class="bar hp"><div class="bar-fill" id="tf-hp"></div><div class="bar-absorb" id="tf-absorb"></div><div class="bar-text" id="tf-hp-text"></div></div>
+        <div id="tf-castbar"><div class="fill"></div><div class="label"></div><div class="timer"></div></div>
         <div class="combo-row" id="combo-row"></div>
         <div class="uf-buffs" id="tf-debuffs"></div>
       </div>

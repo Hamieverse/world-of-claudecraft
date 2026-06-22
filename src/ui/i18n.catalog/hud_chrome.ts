@@ -194,7 +194,7 @@ export const hudChromeStrings = {
   landing: {
     // Footer toggle: swap the moving trailer for a static high-contrast backdrop.
     highContrast: "High Contrast",
-    highContrastAria: "Toggle high-contrast background — disables the moving trailer so start-screen text stays legible",
+    highContrastAria: "Toggle high-contrast background: disables the moving trailer so start-screen text stays legible",
   },
   // Character-screen stat tooltips (hover a stat on the C panel). The stat NAMES
   // reuse itemUi.stats.*; only these descriptions / effect lines / notes are new.
@@ -278,6 +278,11 @@ export const hudChromeStrings = {
       many: "Who: {count} players online on {realm}.",
       other: "Who: {count} players online on {realm}.",
     },
+  },
+  // Character window (paperdoll) controls.
+  paperdoll: {
+    unequipAria: "Unequip {item}",
+    unequipHint: "Click ×, right-click, or drag to bags to unequip",
   },
   // Home-page account portal (the logged-in "Account" nav tab). Lives here in the
   // English-only hud_chrome domain so an English-only PR compiles; translations
