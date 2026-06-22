@@ -36,7 +36,7 @@ import { handleInternalApi } from './internal';
 import { handlePerfReport } from './perf_report';
 import { GameServer } from './game';
 import { REALM, REALM_DIRECTORY, REALM_ORIGINS } from './realm';
-import { webLoginEnforced, isWebClientRequest } from './web_login_guard';
+import { webLoginEnforced, isWebClientRequest, NATIVE_APP_ORIGINS } from './web_login_guard';
 import { cacheControlFor, etagFor, isNotModified } from './static_cache';
 import { recordUsageCacheEvent, recordUsageMetric, setUsageCacheSize } from './provider_usage';
 
@@ -57,6 +57,10 @@ const STATIC_PAGE_ALIASES = new Map([
   ['/privacy/', '/privacy.html'],
   ['/terms', '/terms.html'],
   ['/terms/', '/terms.html'],
+  ['/data-deletion', '/data-deletion.html'],
+  ['/data-deletion/', '/data-deletion.html'],
+  ['/support', '/support.html'],
+  ['/support/', '/support.html'],
 ]);
 // How long chat logs are kept (0 = forever); pruned at boot and daily.
 const CHAT_LOG_RETENTION_DAYS = Number(process.env.CHAT_LOG_RETENTION_DAYS ?? 90);
@@ -334,12 +338,12 @@ function serveStatic(req: http.IncomingMessage, res: http.ServerResponse): void 
 // ---------------------------------------------------------------------------
 
 // Cross-realm CORS: a client served by one realm may call another realm's API
-// after switching realms in the picker. Only the configured realm origins are
-// allowed; auth is via bearer token (no cookies), so reflecting these specific
-// origins is safe.
+// after switching realms in the picker. Native Capacitor builds also call the
+// production origin from localhost-style WebView origins. Auth is via bearer
+// token (no cookies), so reflecting these specific origins is safe.
 function maybeCors(req: http.IncomingMessage, res: http.ServerResponse): void {
   const origin = req.headers.origin;
-  if (typeof origin === 'string' && REALM_ORIGINS.has(origin)) {
+  if (typeof origin === 'string' && (REALM_ORIGINS.has(origin) || NATIVE_APP_ORIGINS.has(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');

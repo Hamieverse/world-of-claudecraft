@@ -1050,6 +1050,16 @@
     font-family: var(--font-ui); font-size: 12px; font-weight: 600; letter-spacing: .3px; }
   .community-link.donate span { display: inline; line-height: 1; }
   .community-link.donate:hover { color: #fff; border-color: #ff6b8b; }    /* Donate */
+  body.native-app .donate-cta,
+  body.native-app .community-link.donate,
+  body.native-app .social-link.donate,
+  body.native-app #token-ca,
+  body.native-app #nav-btn-download,
+  body.native-app .cs-wallet,
+  body.native-app .cs-wallet-hidden-note,
+  body.native-app .account-wallet-card {
+    display: none !important;
+  }
 
   /* ---------- windows ---------- */
   /* All modal windows share one position: centred on the page. Per-window rules
@@ -2226,7 +2236,10 @@
     z-index: 20;
     border-radius: var(--radius-sm);
     transition: box-shadow var(--transition-speed);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
+  .mobile-menu-toggle * { pointer-events: none; }
   .mobile-menu-toggle:focus-visible {
     outline: 3px solid var(--color-border-focus);
     outline-offset: 4px;
@@ -4284,6 +4297,18 @@
   body.mobile-touch .auth-panel-premium input {
     font-size: 16px;
   }
+  body.native-app.mobile-touch .auth-panel-premium {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  body.native-app.mobile-touch .auth-panel-premium,
+  body.native-app.mobile-touch .auth-panel-premium input,
+  body.native-app.mobile-touch .auth-label {
+    transition: none;
+  }
+  body.native-app.mobile-touch .auth-panel-premium input:focus-visible {
+    box-shadow: none;
+  }
 
   .password-wrapper {
     width: 100%;
@@ -4587,6 +4612,14 @@
   #start-screen-backdrop.trailer-ready .bg-trailer { opacity: 0.85; }
   #start-screen-backdrop.trailer-playing .bg-trailer {
     animation: trailer-drift 38s ease-in-out infinite alternate;
+  }
+  body.native-app.mobile-touch[data-start-panel="login-panel"] .portal-ring,
+  body.native-app.mobile-touch[data-start-panel="login-panel"] .portal-ring-reverse,
+  body.native-app.mobile-touch[data-start-panel="login-panel"] .nebula-overlay,
+  body.native-app.mobile-touch[data-start-panel="login-panel"] .bg-trailer {
+    animation: none !important;
+    filter: none !important;
+    transform: none !important;
   }
   .bg-trailer-scrim {
     position: absolute;
@@ -5336,6 +5369,15 @@
   #mobile-controls { display: none; }
   #mobile-preflight { display: none; }
   #rotate-device { display: none; }
+  body.mobile-touch.game-active #start-screen,
+  body.mobile-touch.game-active #mobile-preflight,
+  body.mobile-touch.game-active #rotate-device {
+    display: none !important;
+    pointer-events: none !important;
+  }
+  body.mobile-touch.game-active:not(.mobile-more-open) #mobile-extra-controls {
+    display: none !important;
+  }
   body.mobile-touch #game-canvas { touch-action: none; }
   /* The HUD overlay must let one-finger panning reach scrollable windows (Bag,
      Market, etc.) on iOS — Safari intersects touch-action down the ancestor
@@ -5668,7 +5710,7 @@
   body.mobile-touch .action-btn.empty { display: none; }
   body.mobile-touch #community-hud {
     right: max(8px, env(safe-area-inset-right));
-    top: 130px;
+    top: calc(max(8px, env(safe-area-inset-top)) + 158px);
     bottom: auto;
     width: 70px;
     padding: 0;
@@ -6404,13 +6446,23 @@
   #rotate-device .rotate-sub { font-family: var(--ui-font); font-size: 13px; color: #c9b27a; line-height: 1.45; }
 
   @media (orientation: portrait) {
-    body.mobile-touch.game-active #rotate-device { display: flex; }
+    body.mobile-touch.game-active #rotate-device { display: none; }
     body.mobile-touch #mobile-combat-controls {
       grid-template-columns: 96px repeat(6, 42px);
       gap: 4px;
     }
     body.mobile-touch .mobile-btn { width: 42px; height: 44px; font-size: 16px; }
     body.mobile-touch #mobile-attack-nearest { width: 96px; }
+    body.mobile-touch #community-hud {
+      top: clamp(
+        calc(max(8px, env(safe-area-inset-top)) + 210px),
+        44dvh,
+        calc(100dvh - 230px)
+      );
+      right: max(8px, env(safe-area-inset-right));
+      bottom: auto;
+      width: 70px;
+    }
   }
 
   @media (orientation: landscape) {
@@ -6494,7 +6546,7 @@
       transform: translateX(-50%) scale(0.88);
       transform-origin: center top;
     }
-    body.mobile-touch #community-hud { top: 108px; right: max(8px, env(safe-area-inset-right)); width: 62px; padding: 4px; gap: 4px; }
+    body.mobile-touch #community-hud { top: calc(max(6px, env(safe-area-inset-top)) + 132px); right: max(8px, env(safe-area-inset-right)); width: 62px; padding: 4px; gap: 4px; }
     body.mobile-touch .community-toggle { width: 40px; height: 40px; }
     body.mobile-touch .community-link { height: 40px; }
     body.mobile-touch .community-link svg { width: 20px; height: 20px; }
@@ -8504,7 +8556,7 @@
             </section>
 
             <!-- Wallet / $WOC -->
-            <section class="account-card">
+            <section class="account-card account-wallet-card">
               <h3 class="account-card-title" data-i18n="hudChrome.account.sectionWallet">$WOC Wallet</h3>
               <p class="account-summary" data-i18n="hudChrome.account.walletSummary">Verify a Solana wallet to show holder flair on your player card.</p>
               <button type="button" class="btn btn-secondary" id="account-manage-wallet" data-i18n="hudChrome.account.manageWallet">Manage Wallet</button>
