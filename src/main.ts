@@ -138,6 +138,7 @@ import {
   setWalletDisplayAvailable,
   setWalletUiEnabled,
   setWocBalance,
+  shouldDisconnectUnverifiedWallet,
 } from './ui/wallet_balance';
 import { formatXp } from './ui/xp_bar';
 import type { IWorld, LeaderboardEntry } from './world_api';
@@ -3520,8 +3521,8 @@ async function enterWorld(c: CharacterSummary, button?: HTMLButtonElement): Prom
   // Wire shareable player cards for this online session: publishing uploads the
   // composited PNG to this realm and returns an absolute public page URL, and
   // the referral provider feeds the card footer. Both are cleared on disconnect.
-  setCardUploader(async (png) => {
-    const r = await api.uploadCard(c.id, png, getLanguage());
+  setCardUploader(async (png, meta) => {
+    const r = await api.uploadCard(c.id, png, getLanguage(), meta.level);
     return { url: absolutePublishedCardUrl(r.url, api.base, location.origin) };
   });
   setReferralProvider(() => api.referralStats());
@@ -4334,6 +4335,11 @@ let linkedWocBalance: number | null = null;
 let connectedWocBalance: number | null = null;
 let walletVerifyPending = false;
 let walletVerifyInProgress = false;
+// True from when a logged-in session starts loading its linked-wallet status until
+// that load settles. While pending, an auto-reconnected wallet must NOT be treated
+// as unverified and disconnected; otherwise a restored session re-signs on every
+// reload (the link is durable server-side; we just haven't fetched it yet).
+let walletLinkStatusPending = false;
 let walletVerifyTimeout: number | null = null;
 let walletVerifyModalUnsubscribe: (() => void) | null = null;
 let walletFlowStatus: 'connect' | 'sign' | 'verify' | null = null;
@@ -4757,7 +4763,16 @@ async function disconnectUnverifiedWallet(): Promise<void> {
 }
 
 async function disconnectUnverifiedWalletIfIdle(): Promise<void> {
-  if (walletVerifyPending || walletVerifyInProgress) return;
+  if (
+    !shouldDisconnectUnverifiedWallet({
+      connectedAddress: walletMod?.currentWallet().address ?? null,
+      linkedPubkey: linkedWalletPubkey,
+      verifyPending: walletVerifyPending,
+      verifyInProgress: walletVerifyInProgress,
+      linkStatusPending: walletLinkStatusPending,
+    })
+  )
+    return;
   await disconnectUnverifiedWallet();
 }
 
@@ -4833,23 +4848,33 @@ async function refreshWalletLinkStatus(): Promise<void> {
     linkedWalletPubkey = null;
     linkedWocBalance = null;
     connectedWocBalance = null;
+    walletLinkStatusPending = false;
     updateWalletButton();
     return;
   }
   if (!api.token) {
     linkedWalletPubkey = null;
     linkedWocBalance = null;
+    walletLinkStatusPending = false;
     updateWalletButton();
     return;
   }
+  // Set synchronously (before the first await) so an auto-reconnecting wallet that
+  // fires mid-load is held, not disconnected, until we know whether it's the link.
+  walletLinkStatusPending = true;
+  let statusKnown = false;
   try {
     const wallet = await api.linkedWallet();
     linkedWalletPubkey = wallet?.pubkey ?? null;
     linkedWocBalance = null;
+    statusKnown = true;
   } catch (err) {
+    // Transient failure (offline/5xx): we genuinely don't know the link status, so
+    // keep any prior linked pubkey and do NOT disconnect a connected wallet, since
+    // that would force a needless re-sign. A later refresh resolves it.
     console.error('[wallet] could not load link status', err);
-    linkedWalletPubkey = null;
-    linkedWocBalance = null;
+  } finally {
+    walletLinkStatusPending = false;
   }
   updateWalletButton();
   const pubkey = linkedWalletPubkey;
@@ -4865,7 +4890,8 @@ async function refreshWalletLinkStatus(): Promise<void> {
       console.error('[wallet] could not load linked balance', err);
     }
   }
-  await disconnectUnverifiedWalletIfIdle();
+  // Only reap an unverified wallet once we've definitively learned the link status.
+  if (statusKnown) await disconnectUnverifiedWalletIfIdle();
 }
 
 // challenge → sign → link, with a verified mirror written server-side.
@@ -5964,6 +5990,10 @@ function wireStartScreens(): void {
   if (api.restoreSession()) {
     enterLoggedInChrome();
     void revalidateAccountSession();
+    // Re-bind the account's linked wallet on a restored session (not just on fresh
+    // login), so an auto-reconnected wallet shows verified and is NOT treated as
+    // unverified and disconnected (the bug that forced a re-sign on every reload).
+    void refreshWalletLinkStatus();
   } else {
     enterLoggedOutChrome();
   }
