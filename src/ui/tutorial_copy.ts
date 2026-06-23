@@ -46,11 +46,20 @@ export function tutorialBodyPlan(step: TutorialStep, touch: boolean): TutorialBo
   return (touch && TOUCH[step]) || KEYBOARD[step];
 }
 
+// True when a step's body copy actually changes between the touch and keyboard
+// interfaces. move/talk/return/done have touch variants; seek/slay describe the
+// world (a marker to follow, wolves to hunt) and read identically, so a mode
+// toggle on them is a no-op for the rendered text.
+export function tutorialStepDiffersByTouch(step: TutorialStep): boolean {
+  return tutorialBodyPlan(step, true).bodyKey !== tutorialBodyPlan(step, false).bodyKey;
+}
+
 // Whether the overlay must rebuild its card. True on a step change (including the
-// first engage from a null step), and also when the interface mode flips while the
-// same step is showing: touch and keyboard pick different control copy
-// (tutorialBodyPlan), so a card left open across an Interface Mode toggle would
-// otherwise keep the stale "movement stick"/"press F" phrasing until the next step.
+// first engage from a null step), and also when the interface mode flips while a
+// step whose copy depends on the mode is showing: touch and keyboard pick
+// different control copy, so a card left open across an Interface Mode toggle
+// would otherwise keep the stale "movement stick"/"press F" phrasing until the
+// next step. A toggle on a mode-agnostic step (seek/slay) does not rebuild.
 export function tutorialNeedsRerender(
   prevStep: TutorialStep | null,
   nextStep: TutorialStep,
@@ -58,5 +67,5 @@ export function tutorialNeedsRerender(
   nextTouch: boolean,
 ): boolean {
   if (nextStep !== prevStep) return true;
-  return nextTouch !== prevTouch;
+  return nextTouch !== prevTouch && tutorialStepDiffersByTouch(nextStep);
 }

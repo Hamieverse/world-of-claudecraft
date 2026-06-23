@@ -113,7 +113,7 @@ export const hudChromeStrings = {
     returnBodyTouch:
       'Your task is done. Return to Marshal Redbrook and tap the Use button to turn it in.',
     doneBodyTouch:
-      'You have the basics, {name}. The Vale is yours to explore. Tap the More button anytime to review your quests. Good hunting.',
+      'You have the basics, {name}. The Vale is yours to explore. Tap More, then Quests, to review your quest log anytime. Good hunting.',
   },
   // Minimap / compass / clock / coordinate widget tooltips and accessible names.
   widgets: {

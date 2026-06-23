@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { tutorialBodyPlan, tutorialNeedsRerender } from '../src/ui/tutorial_copy';
+import { tutorialBodyPlan, tutorialNeedsRerender, tutorialStepDiffersByTouch } from '../src/ui/tutorial_copy';
 import type { TutorialStep } from '../src/ui/tutorial';
+import { hudChromeStrings } from '../src/ui/i18n.catalog/hud_chrome';
 
 describe('tutorialBodyPlan', () => {
   const STEPS: TutorialStep[] = ['move', 'seek', 'talk', 'slay', 'return', 'done'];
@@ -53,15 +54,53 @@ describe('tutorialNeedsRerender', () => {
     expect(tutorialNeedsRerender('move', 'seek', true, false)).toBe(true);
   });
 
-  it('re-renders when Interface Mode is toggled mid-step (touch flips)', () => {
+  it('re-renders when Interface Mode is toggled mid-step on a step whose copy differs by mode', () => {
     // The control copy differs between touch and keyboard, so an open card must
     // rebuild when the mode changes even though the step is the same.
-    expect(tutorialNeedsRerender('move', 'move', false, true)).toBe(true);
-    expect(tutorialNeedsRerender('talk', 'talk', true, false)).toBe(true);
+    for (const step of ['move', 'talk', 'return', 'done'] as const) {
+      expect(tutorialNeedsRerender(step, step, false, true)).toBe(true);
+      expect(tutorialNeedsRerender(step, step, true, false)).toBe(true);
+    }
+  });
+
+  it('does not re-render on a mode toggle for mode-agnostic steps (seek/slay)', () => {
+    // seek/slay read identically on touch and keyboard, so a toggle is a no-op for
+    // the rendered card (the slay kill counter still refreshes on its own path).
+    for (const step of ['seek', 'slay'] as const) {
+      expect(tutorialNeedsRerender(step, step, false, true)).toBe(false);
+      expect(tutorialNeedsRerender(step, step, true, false)).toBe(false);
+    }
   });
 
   it('does not re-render when neither the step nor the touch state changed', () => {
     expect(tutorialNeedsRerender('move', 'move', false, false)).toBe(false);
     expect(tutorialNeedsRerender('slay', 'slay', true, true)).toBe(false);
   });
+});
+
+describe('tutorialStepDiffersByTouch', () => {
+  it('is true only for the steps that have a touch-variant body', () => {
+    for (const step of ['move', 'talk', 'return', 'done'] as const) {
+      expect(tutorialStepDiffersByTouch(step)).toBe(true);
+    }
+    for (const step of ['seek', 'slay'] as const) {
+      expect(tutorialStepDiffersByTouch(step)).toBe(false);
+    }
+  });
+});
+
+describe('touch tutorial copy is control-accurate', () => {
+  // Guards the actual English strings (not just which key is chosen): the touch
+  // copy must never reference a keyboard, the mouse, a fixed stick side, or a
+  // keyboard-only interpolation param. (hud.tutorial.*Body keep those; the touch
+  // variants drop them.)
+  const FORBIDDEN =
+    /\bW\/?A\/?S\/?D\b|\bWASD\b|\bmouse\b|\bkeyboard\b|\b(left|right) stick\b|\{moveKeys\}|\{interactKey\}|\{questKey\}/i;
+  const touch = hudChromeStrings.tutorial as Record<string, string>;
+
+  for (const [key, text] of Object.entries(touch)) {
+    it(`${key} references touch controls only`, () => {
+      expect(text).not.toMatch(FORBIDDEN);
+    });
+  }
 });
