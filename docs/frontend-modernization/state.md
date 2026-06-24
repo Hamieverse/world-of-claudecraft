@@ -349,7 +349,7 @@ Full per-phase scope/acceptance is in the `phase-NN-*.md` files; line numbers in
 | Phase | Title | Risk | Kind | Status |
 |---|---|---|---|---|
 | P0 | Foundation gates: CSS-corpus + UI-purity guard + perf/visual/mobile baseline | low | port+extend | done (tests/css_corpus.test.ts + tests/architecture.test.ts UI_PURE_CORES/RENDER_PURE_CORES; baselines perf-/visual-/mobile-baseline-v016.md; mobile perf + 2 mobile E2E scripts surfaced for P17a/P4b) |
-| P1 | CSS A: Lightning flip + tokens + base + the CSS-import seam | low | port | pending |
+| P1 | CSS A: Lightning flip + tokens + base + the CSS-import seam | low | port | done (Lightning flip via browserslistToTargets + zero-dep .browserslistrc parser, no browserslist npm dep; dead css.postcss removed; src/styles/{index,tokens,base}.css; one @layer order declared in index.css, imported once from src/main.ts -> both game entries; --range-fill stays the slider inline fallback; play.html 3 cursor url()s absolutized to survive the flip; biome src/styles override; 3 commits b9fe99b2/0a120e9f/0892c250; tsc + vitest 3906 + build x4 green; qa-checklist no BLOCKING) |
 | P2 | CSS B1: in-world HUD chrome (full section map incl Fiesta HUD + tooltip) | medium | port | pending |
 | P3 | CSS B2: modal + feature windows (arena/market/options/theme/emote ranges fixed) | medium | port | pending |
 | P4a | CSS C-1: pre-game shell + char-select -> shell.css | medium | port | pending |
@@ -423,6 +423,22 @@ async-failure copy for leaderboard/market (P9b/P8b), and a lazy-window loading l
   `--range-fill` is NOT a `:root` token: it is the inline `var(--range-fill, 0%)` fallback on the
   slider track at `index.html:356`, written per-element at `hud.ts:12899`; it rides into `base.css`
   inside the slider rule, do NOT promote it to `:root`.
+  P1 LANDED (commits b9fe99b2/0a120e9f/0892c250, local): the Lightning flip (`css.transformer` +
+  `cssMinify` = lightningcss, targets via `browserslistToTargets` fed by a zero-dep `.browserslistrc`
+  parser at `scripts/browserslist_targets.mjs`, NO `browserslist` npm dep), `.browserslistrc`, and the
+  `src/styles/index.css` barrel seam are in. The dead `css.postcss` block is removed (no
+  `tsconfig.json` change was needed; the CSS import type-checks via the existing `vite/client` types).
+  The single `@layer` order is now declared once
+  (`tokens, base, layout, components, hud, hud.mobile, shell, index.extra, play.extra`); later CSS
+  phases only fill layers. The barrel is imported once from `src/main.ts`, the SHARED bootstrap for
+  both game entries (V16 has no separate per-entry TS, unlike the recon's assumption), so one import
+  styles `index.html` AND `play.html`. `--range-fill` stayed in the slider rule (not `:root`). GOTCHA
+  for P2-P4: the global Lightning flip hard-errors on a relative `url()` inside a custom property, so
+  any inline CSS a later phase touches must use root-absolute `url('/...')`; P1 had to absolutize
+  `play.html`'s 3 inline cursor `url()`s as a build-survival fix (its token/base extraction itself is
+  still deferred to P4, its block diverges 327 vs 433 lines). A `biome.json` override scoped to
+  `src/styles/**` disables `noImportantStyles` + `noDescendingSpecificity` (they fire on verbatim
+  load-bearing `!important` and source order; reuse it as later phases extract more legacy CSS).
 - Tier: `src/render/gfx.ts` (`graphicsPresetLabel` at 245, 5 labels; `GFX_BUCKET_BANDS`; the `ui`
   band `governable:false`; `gfx.ts:308` bare `0.5` -> import `EFFECTS_QUALITY_LOW_CUTOFF`),
   `src/game/settings.ts`, `src/game/ui_effects_profile.ts` (new P5, render-importable),
