@@ -133,10 +133,11 @@ export class AurasPainter {
     // +Infinity) every aura renders in order, byte-identical to the untiered painter.
     // Capping the render (not the view) keeps the parity-identical core untouched, so the
     // same selection applies under a Sim-shaped and a ClientWorld-mirror state. (Scope: a
-    // debuff is anything the core flags isDebuff -- every allowlisted KIND in both worlds.
-    // The one offline-only case is a negative-value buff_* stat-sap, which the wire zeroes
-    // online so it reads as a buff there; that pre-existing wire-fidelity gap, NOT this cap,
-    // is the only way such a sap could ride the low buff budget. See auras_view.isAuraDebuff.)
+    // debuff is anything the core flags isDebuff -- every allowlisted KIND in both worlds,
+    // AND a negative-value buff_* stat-sap. The sap now classifies as a debuff online too
+    // because the wire carries its negative value (server/game.ts sends it sparsely,
+    // src/net/online.ts decodes it), so no sap can ride the low buff budget on either host.
+    // See auras_view.isAuraDebuff.)
     const cap = auraVisibleCap(this.getFxTier());
     this.ordered.length = 0;
     let rendered = 0;

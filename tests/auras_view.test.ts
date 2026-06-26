@@ -179,15 +179,14 @@ describe('decision 15: Sim-shaped and ClientWorld-mirror-shaped auras derive ide
     expect(fromSim.stacksText).toBe('');
   });
 
-  it('value-based debuff classification is OFFLINE-ONLY: the wire zeroes aura.value (pre-existing, byte-faithful)', () => {
-    // A negative-value buff_* aura (a mob stat-sap, e.g. enfeeble on buff_int or
-    // Withering Wail on buff_ap) reads as a debuff via the value < 0 branch. The Sim
-    // presents the real negative value; the ClientWorld mirror decodes value:0 (the
-    // server omits it, online.ts zeroes it). So isDebuff DIVERGES across the wire. This
-    // is PRE-EXISTING (the old inline renderAuras used the identical classification) and
-    // a wire-fidelity gap, NOT a P12b change; the test MODELS the mirror honestly (cf.
-    // P11b modeling absorb as offline-only) instead of giving false confidence by
-    // varying only a parity-safe field.
+  it('value-based debuff classification now AGREES across the wire (the negative value is sent)', () => {
+    // A negative-value buff_* aura (a mob stat-sap, e.g. enfeeble on buff_int or Withering
+    // Wail on buff_ap) reads as a debuff via the value < 0 branch. The wire now carries the
+    // value SPARSELY (server/game.ts sends it only when negative; src/net/online.ts decodes
+    // `a.value ?? 0`), so the ClientWorld mirror presents the SAME negative value the Sim
+    // does and both worlds classify the sap as a debuff. (The end-to-end encode/decode round
+    // trip is proven in tests/snapshots.test.ts; here we pin the pure classification over
+    // the two shapes the wire now produces.)
     const simSap = aura({
       id: 'enfeeble',
       name: 'Enfeeble',
@@ -200,14 +199,29 @@ describe('decision 15: Sim-shaped and ClientWorld-mirror-shaped auras derive ide
       name: 'Enfeeble',
       kind: 'buff_int',
       remaining: 8,
-      value: 0,
+      value: -30,
     });
     expect(isAuraDebuff(simSap)).toBe(true); // offline: debuff border
-    expect(isAuraDebuff(clientSap)).toBe(false); // online: value zeroed by the wire
+    expect(isAuraDebuff(clientSap)).toBe(true); // online: the wire now sends the value
+    // A POSITIVE buff value is omitted by the sparse wire and decodes to 0, so a real buff
+    // stays a buff in both worlds.
+    expect(isAuraDebuff(aura({ id: 'might', kind: 'buff_ap', value: 50 }))).toBe(false);
+    expect(isAuraDebuff(aura({ id: 'might', kind: 'buff_ap', value: 0 }))).toBe(false);
     // Allowlisted kinds do NOT depend on value, so they stay a debuff under BOTH shapes
     // (the parity-safe path the rest of the strip relies on).
     expect(isAuraDebuff(aura({ id: 'rip', kind: 'dot', value: 0 }))).toBe(true);
     expect(isAuraDebuff(aura({ id: 'sap', kind: 'debuff_ap', value: 0 }))).toBe(true);
+  });
+
+  it('marks a wire-faithful mirror sap isDebuff via the real view, so the low cap keeps it', () => {
+    // The painter's debuff-priority low cap keys on slot.isDebuff (auras_painter.ts: a
+    // debuff is never culled). Now that the wire carries the negative value, a mirror sap
+    // flows through the REAL view as isDebuff:true, exactly as the Sim aura does, so the low
+    // preset can no longer hide it. (The cap half -- a debuff past the buff budget still
+    // renders on low -- is pinned in tests/auras_painter.test.ts.)
+    const mirrorSap = aura({ id: 'enfeeble', kind: 'buff_int', value: -30 });
+    const slot = createAurasView('all', deps()).tick(entity([mirrorSap])).slots[0];
+    expect(slot.isDebuff).toBe(true);
   });
 });
 

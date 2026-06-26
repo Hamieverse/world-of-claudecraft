@@ -17,8 +17,9 @@ import { type ClientSession, GameServer, wireEntity } from '../server/game';
 import { ClientWorld } from '../src/net/online';
 import { DELVES } from '../src/sim/data';
 import { Sim } from '../src/sim/sim';
-import { DT, type PlayerClass } from '../src/sim/types';
+import { type Aura, DT, type PlayerClass } from '../src/sim/types';
 import { terrainHeight } from '../src/sim/world';
+import { isAuraDebuff } from '../src/ui/auras_view';
 
 const DELTA_KEYS = [
   'inv',
@@ -1491,5 +1492,135 @@ describe('lockpick view rebuilds from events on the online client', () => {
     feed(client, { type: 'lockpickEnd', sessionId: 'OTHER', outcome: 'fail' });
     expect(client.lockpickState).not.toBeNull();
     expect(client.lockpickState?.sessionId).toBe('s2');
+  });
+});
+
+// A negative-value buff_* aura (a stat-sap: an intellect-draining curse on buff_int, an
+// attack-power drain on buff_ap) reads as a DEBUFF via auras_view.isAuraDebuff's
+// `value < 0` branch. That branch can only fire online if the wire carries the value. The
+// serializer sends `value` SPARSELY: only when it is negative (the sole case that flips the
+// classification), so an ordinary buff and the positive absorb shield stay off the wire and
+// decode to 0 exactly as before (no absorb-overlay regression; see target_frame.test.ts).
+// The client decode reads `a.value ?? 0`, so an old server that never sends it still decodes
+// to 0 (backward compatible). This drives a real Sim aura through the real serializer
+// (wireEntity) and the real client decode (ClientWorld.applySnapshot).
+describe('aura value over the wire (stat-sap debuff parity, decision 15)', () => {
+  function roundTrip(aura: Aura): { wire: Record<string, unknown>; mirror: Aura } {
+    const sim = new Sim({ seed: 1, playerClass: 'warrior', noPlayer: true });
+    const pid = sim.addPlayer('warrior', 'Sapped');
+    const e = sim.entities.get(pid)!;
+    e.auras.push(aura);
+    const wire = wireEntity(e);
+    // A different pid than the wired entity, so the player is decoded as a regular entity.
+    const client = bareClient(999);
+    // Serialize through JSON exactly as production does (wireCacheFor -> JSON.stringify), so
+    // the round trip also catches any JSON-normalization divergence (e.g. -0 -> 0), not just
+    // the in-memory wire shape.
+    const snap = JSON.parse(JSON.stringify({ t: 'snap', ents: [wire] }));
+    (client as any).applySnapshot(snap);
+    const mirror = client.entities.get(pid)!.auras.find((a) => a.id === aura.id)!;
+    return { wire, mirror };
+  }
+
+  // Pull the wired aura record by id (the entity carries only the pushed aura here).
+  function wireAura(wire: Record<string, unknown>, id: string): Record<string, unknown> {
+    return (wire.auras as Array<Record<string, unknown>>).find((a) => a.id === id)!;
+  }
+
+  function sapInt(value: number): Aura {
+    return {
+      id: 'enfeeble',
+      name: 'Enfeeble',
+      kind: 'buff_int',
+      remaining: 8,
+      duration: 8,
+      value,
+      sourceId: 0,
+      school: 'physical',
+    };
+  }
+
+  it('sends a NEGATIVE buff_* value so the sap classifies as a debuff in BOTH worlds', () => {
+    const simSap = sapInt(-30);
+    const { wire, mirror } = roundTrip(simSap);
+    // the serializer carried the negative value...
+    expect(wireAura(wire, 'enfeeble').value).toBe(-30);
+    // ...and the client decoded it (not the old hardcoded 0).
+    expect(mirror.value).toBe(-30);
+    // so isAuraDebuff agrees across the wire: a debuff offline AND online.
+    expect(isAuraDebuff(simSap)).toBe(true);
+    expect(isAuraDebuff(mirror)).toBe(true);
+  });
+
+  it('does NOT send a POSITIVE buff value (sparse): a real buff stays a buff in both worlds', () => {
+    const buff: Aura = { ...sapInt(40), id: 'arcane_intellect', name: 'Arcane Intellect' };
+    const { wire, mirror } = roundTrip(buff);
+    expect('value' in wireAura(wire, 'arcane_intellect')).toBe(false); // omitted on the wire
+    expect(mirror.value).toBe(0); // decodes to 0 (?? 0)
+    expect(isAuraDebuff(buff)).toBe(false);
+    expect(isAuraDebuff(mirror)).toBe(false);
+  });
+
+  it('does NOT send a POSITIVE absorb value: the shield overlay stays offline-only (no regression)', () => {
+    const shield: Aura = {
+      id: 'power_word_shield',
+      name: 'Power Word: Shield',
+      kind: 'absorb',
+      remaining: 12,
+      duration: 12,
+      value: 250,
+      sourceId: 0,
+      school: 'holy',
+    };
+    const { wire, mirror } = roundTrip(shield);
+    expect('value' in wireAura(wire, 'power_word_shield')).toBe(false);
+    // online absorb is still 0, so the shield overlay remains offline-only (target_frame parity).
+    expect(mirror.value).toBe(0);
+  });
+
+  it('does NOT send a NEGATIVE value for a non-buff_ aura (kind-gated): fear keeps its kind classification', () => {
+    // The emit mirrors isAuraDebuff's value branch (buff_* only), so a negative-value
+    // non-buff aura -- e.g. an incapacitate (fear) carrying a random facing angle that is
+    // negative about half the time -- never ships its value. It stays a debuff via its KIND,
+    // identically in both worlds, and no inert value rides the wire.
+    const fear: Aura = {
+      id: 'fear',
+      name: 'Fear',
+      kind: 'incapacitate',
+      remaining: 4,
+      duration: 4,
+      value: -1.5,
+      sourceId: 0,
+      school: 'shadow',
+    };
+    const { wire, mirror } = roundTrip(fear);
+    expect('value' in wireAura(wire, 'fear')).toBe(false); // negative, but not buff_ -> omitted
+    expect(mirror.value).toBe(0);
+    expect(isAuraDebuff(fear)).toBe(true); // debuff via kind, in both worlds
+    expect(isAuraDebuff(mirror)).toBe(true);
+  });
+
+  it('tolerates an old-server wire aura with no value (backward compatible -> 0)', () => {
+    const client = bareClient(1);
+    (client as any).applySnapshot({
+      ents: [
+        {
+          id: 2,
+          k: 'mob',
+          tid: 'wolf',
+          nm: 'Wolf',
+          lv: 3,
+          x: 0,
+          y: 0,
+          z: 0,
+          f: 0,
+          hp: 40,
+          mhp: 40,
+          auras: [{ id: 'enfeeble', name: 'Enfeeble', kind: 'buff_int', rem: 8, dur: 8 }],
+        },
+      ],
+    });
+    const mirror = client.entities.get(2)!.auras.find((a) => a.kind === 'buff_int')!;
+    expect(mirror.value).toBe(0);
   });
 });

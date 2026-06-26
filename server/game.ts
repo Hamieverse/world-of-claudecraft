@@ -227,6 +227,11 @@ interface WireAura {
   kind: string;
   rem: number;
   dur: number;
+  // Sent SPARSELY: only a negative-value buff_* aura (a stat-sap) rides the wire (see the
+  // serializer below), the exact case auras_view.isAuraDebuff reads value for. Everything
+  // else (positive buffs, absorb shields, and negative-value non-buff auras like the random
+  // fear angle on an incapacitate) stays off the wire and decodes to 0, exactly as before.
+  value?: number;
   stacks?: number;
 }
 
@@ -303,6 +308,15 @@ function dynamicFields(e: Entity): Record<string, unknown> {
         kind: a.kind,
         rem: round2(a.remaining),
         dur: a.duration,
+        // Carry the value ONLY for the exact case the client UI reads it: a negative-value
+        // buff_* aura (a stat-sap), which auras_view.isAuraDebuff classifies as a debuff via
+        // `kind.startsWith('buff_') && value < 0`. Mirroring that predicate keeps the wire in
+        // lockstep with the classification, so a graphics preset can never hide such a debuff
+        // and nothing else (positive buffs, absorb shields, a fear's random facing angle, any
+        // other negative-value non-buff aura) rides the wire or changes online behavior. Sent
+        // RAW (like `dur`, not round2) so the sign the classification keys on survives the
+        // wire exactly: round2 could round a tiny negative to -0, which JSON writes as 0.
+        ...(a.value < 0 && a.kind.startsWith('buff_') ? { value: a.value } : {}),
         ...(a.stacks && a.stacks > 1 ? { stacks: a.stacks } : {}),
       }),
     );

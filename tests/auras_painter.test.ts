@@ -9,7 +9,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UiEffectsTier } from '../src/game/ui_effects_profile';
 import { AURA_VISIBLE_CAP_LOW } from '../src/game/ui_tier_knobs';
 import { AurasPainter, type AurasPainterDeps } from '../src/ui/auras_painter';
-import type { AuraSlotState, AurasState } from '../src/ui/auras_view';
+import {
+  type AuraInput,
+  type AuraSlotState,
+  type AurasDeps,
+  type AurasState,
+  createAurasView,
+} from '../src/ui/auras_view';
 import type { PainterHostWriters } from '../src/ui/painter_host';
 
 // ---------------------------------------------------------------------------
@@ -448,5 +454,59 @@ describe('AurasPainter: P14a static-preset visible-count cap (Slice C)', () => {
     expect(nodes().length).toBe(simCount);
     expect(nodes().length).toBe(AURA_VISIBLE_CAP_LOW + 1); // cap buffs + the kept debuff
     expect(sig(calls)).toEqual(simSig); // identical painted output, value for value
+  });
+});
+
+// ---------------------------------------------------------------------------
+// End-to-end (view -> painter) for the negative-value stat-sap. The wire now carries the
+// sap's negative value, so it classifies as a debuff in BOTH worlds; this drives a sap
+// through the REAL createAurasView into the low painter and asserts the debuff-priority cap
+// renders it past the buff budget. The wire half (server emit + client decode) lives in
+// tests/snapshots.test.ts; the pure classification in tests/auras_view.test.ts. This guard
+// pins the coupling between the two (view marks isDebuff, painter keys the cap on isDebuff).
+// ---------------------------------------------------------------------------
+describe('AurasPainter: a wire-faithful buff_* stat-sap survives the low cap (view -> painter)', () => {
+  it('renders a negative-value buff_int sap behind cap+2 leading raid buffs on low', () => {
+    const container = fakeEl('div');
+    const facet = recordingFacet();
+    const tips = recordingTooltips();
+    const painterDeps: AurasPainterDeps = {
+      resolveIconUrl: (key) => `url(${key})`,
+      renderTooltip: (name, remaining) => `${name}|${Math.ceil(remaining)}`,
+      attachTooltip: tips.attachTooltip,
+    };
+    const painter = new AurasPainter(
+      facet.writers,
+      container as unknown as HTMLElement,
+      painterDeps,
+      fakeDoc,
+      () => 'low',
+    );
+    const viewDeps: AurasDeps = {
+      iconId: (a) => a.id,
+      auraName: (a) => a.name,
+      formatStacks: (n) => String(n),
+    };
+    const view = createAurasView('all', viewDeps);
+    // cap+2 leading raid buffs (the worst case), then the negative-value sap last.
+    const auras: AuraInput[] = Array.from({ length: AURA_VISIBLE_CAP_LOW + 2 }, (_, i) => ({
+      id: `buff${i}`,
+      name: `Buff ${i}`,
+      kind: 'buff_ap',
+      remaining: 600,
+      value: 50,
+    }));
+    auras.push({ id: 'enfeeble', name: 'Enfeeble', kind: 'buff_int', remaining: 8, value: -30 });
+
+    painter.paint(view.tick({ auras }));
+
+    // cap buffs + the never-culled sap = cap + 1 nodes; the 2 trailing buffs are shed.
+    expect(container.childNodes).toHaveLength(AURA_VISIBLE_CAP_LOW + 1);
+    // the sap actually rendered: its debuff class toggled on for a rendered node.
+    expect(
+      facet.calls.some(
+        (c) => c.m === 'toggleClass' && c.args[0] === 'debuff' && c.args[1] === true,
+      ),
+    ).toBe(true);
   });
 });

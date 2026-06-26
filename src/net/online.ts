@@ -1161,7 +1161,12 @@ export class ClientWorld implements IWorld {
         kind: a.kind,
         remaining: a.rem,
         duration: a.dur,
-        value: 0,
+        // The wire carries value only for negative-value buff_* stat-saps (sparse,
+        // server/game.ts), so the UI classifies them as debuffs identically to offline; a
+        // missing value (ordinary buffs, absorb, non-buff auras, an old server) decodes to 0
+        // as before. sourceId/school stay simplified (separate pre-existing wire reductions,
+        // not part of this change).
+        value: a.value ?? 0,
         sourceId: 0,
         school: 'physical' as const,
         stacks: a.stacks,

@@ -146,13 +146,14 @@ export interface AurasView {
  *  buff_int/buff_ap with a negative value). Byte-faithful to the old inline
  *  classification, lifted into the core.
  *
- *  CAVEAT (pre-existing wire-fidelity gap, NOT introduced by P12b): the online wire
- *  decodes aura.value as 0 (online.ts), so the `value < 0` branch is OFFLINE-ONLY - a
- *  negative-value buff_* stat-sap shows the debuff border offline but not online. The
- *  old inline renderAuras used the identical expression, so this divergence predates the
- *  extraction; closing it is a wire change (send value, or a precomputed debuff flag),
- *  out of this presentation-only phase's scope. The allowlisted kinds (dot, debuff_ap,
- *  ...) do not depend on value and stay debuffs under both worlds. */
+ *  PARITY: the `value < 0` branch fires identically in both worlds. The wire carries the
+ *  aura value SPARSELY (server/game.ts WireAura sends it only when negative, the sole case
+ *  that flips this classification; src/net/online.ts decodes `a.value ?? 0`), so a
+ *  negative-value buff_* stat-sap shows the debuff border online and offline, and the
+ *  low-tier debuff-priority aura cap (auras_painter.ts) can never hide it. The allowlisted
+ *  kinds (dot, debuff_ap, ...) never depended on value and have always classified the same
+ *  in both worlds (the kind is on the wire). The end-to-end encode/decode round trip is
+ *  pinned in tests/snapshots.test.ts. */
 export function isAuraDebuff(aura: AuraInput): boolean {
   return DEBUFF_AURA_KINDS.has(aura.kind) || (aura.kind.startsWith('buff_') && aura.value < 0);
 }
