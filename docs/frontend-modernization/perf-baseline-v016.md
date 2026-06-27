@@ -75,24 +75,29 @@ threshold was set, so the run records numbers without failing on a budget.
 | gltf / textures / views | 150 / 51 / 46 | |
 | samples / errors | 6 / 0 | |
 
-### mobile (390x844): NOT CAPTURABLE on the untouched tree (surfaced finding, deferred to P17a)
+### mobile (844x390 landscape): CAPTURED at P17a (first all-together run)
 
-perf_tour's mobile profile **cannot boot the world** on v0.16.0 as shipped, so there is no
-mobile number to record (it was NOT fabricated). Root cause, two compounding reasons:
+P0 could NOT boot the mobile profile: the viewport was portrait 390x844, but the in-game
+world is landscape-only on web mobile (decision 16a), so it hit the `#rotate-device` gate,
+and `bootOffline` never dismissed the `#mobile-preflight` overlay (boot timed out at 120s).
+P17a re-authored perf_tour's mobile profile: the viewport is now LANDSCAPE 844x390 (an
+iPhone-class phone rotated, still matching `PHONE_TOUCH_QUERY` so the touch HUD is what gets
+measured) and `bootOffline` clicks `#mobile-preflight-continue` on the mobile profile. The
+world now boots. First capture (same M4 Max / swiftshader as desktop, 2026-06-26):
 
-1. The mobile profile viewport is **390x844 (portrait)**. On v0.16.0 the in-game world is
-   **landscape-only on web mobile (decision 16a)**, so a portrait mobile viewport surfaces
-   the rotate / preflight gate instead of the HUD.
-2. perf_tour's `bootOffline` flow does **not dismiss the `#mobile-preflight` overlay**
-   (`body` stays `mobile-preflight-open`, `window.__game.sim.player` never appears), so the
-   boot wait times out after 120s (`hasGame: false`).
+| Metric | Value | Role |
+|---|---|---|
+| **hudHotDomSkipRate** | **0.961** | within the boot-write band; hotWrites (the bypass count) is 152, IDENTICAL to desktop |
+| hudHotDomWrites | 152 | the DURABLE invariant: the elision-bypass count, byte-identical to desktop + the P13b pin |
+| frameP95 | 250 ms | same-machine-relative only (first mobile capture, no prior floor to beat) |
+| fct burst | [64, 64, 64] | FCT pool cap-bounded (FCT_POOL_CAP=64) under the 3x400 AoE waves |
+| bootMiB | 55.066 | |
 
-Editing perf_tour to fix this is OUT of P0 scope (re-author is P17a). **P17a must give the
-mobile perf profile a landscape viewport AND dismiss the preflight** so a mobile perf floor
-can be captured; until then the per-frame phases can only gate the DESKTOP frameP95 and the
-machine-independent hudHotDomSkipRate. The skip-rate anchor is renderer-independent, so the
-per-frame DOM-write gate still holds for both profiles via the desktop capture; only the
-mobile wall-clock floor is deferred.
+On the 0.961 vs the desktop 0.962: the hot-DOM-WRITE count is 152 on BOTH profiles (the
+elision-bypass count is invariant), so write-elision did NOT regress; the 0.001 ratio gap is
+pure denominator (frame-count) noise on the slightly shorter mobile tour, the documented
+boot-write band. The desktop profile (the one with a P0 baseline) held EXACTLY at the 0.962
+floor. The durable per-frame anchor across both profiles is hotWrites=152.
 
 ## What later phases do with this
 
@@ -100,5 +105,8 @@ mobile wall-clock floor is deferred.
   fresh same-machine re-run of this desktop baseline (NOT <= the literal 250 ms on other
   hardware). Re-run `PERF_VIEWPORT=desktop node scripts/perf_tour.mjs` on the gating machine
   to get the comparison number.
-- P17a: re-author perf_tour (incl. a working landscape mobile profile) and add the standing
-  `hud_perf_budget.test.ts`.
+- P17a (DONE 2026-06-26): re-authored perf_tour's mobile profile (landscape boot, above) and
+  added the standing `tests/hud_perf_budget.test.ts`, which READS the 0.962 floor from this
+  file (throws if absent). The first all-together run (desktop + mobile) held: desktop
+  frameP95 250 == baseline, skip-rate 0.962 == floor, FCT [64,64,64]; mobile booted and
+  measured (skip-rate 0.961 / hotWrites 152, see above). No per-frame regression.

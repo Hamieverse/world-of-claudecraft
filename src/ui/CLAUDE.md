@@ -113,8 +113,18 @@ P10-P14 phases:
   each per-frame phase checked against the P0 baseline at its green gate (perf_tour does NOT
   auto-fail on skip-rate, so the always-on write-elision guarantee is the
   `tests/painter_host.test.ts` guard above). Each green-gate commit is TAGGED so a later
-  cumulative regression bisects to a phase. The STANDING vitest perf budget
-  (`tests/hud_perf_budget.test.ts`) and the first all-together perf run are pending P17a.
+  cumulative regression bisects to a phase. The STANDING vitest perf budget is
+  `tests/hud_perf_budget.test.ts` (P17a), split by host so each assertion runs where it is
+  measurable: ARM 1 (Node, every `npm test`) scans every hot painter for raw writes; ARM 2
+  (Node fake-DOM, every `npm test`) drives the non-pooled per-frame painters through a steady
+  loop over a real `makeWriterFacet` and asserts per-painter elision + the aggregate skip-rate
+  stays >= the floor READ from `docs/frontend-modernization/perf-baseline-v016.md` (it throws
+  if absent, never defaults to 0), for BOTH a Sim- and a ClientWorld-shaped input (decision
+  15), plus the `alloc_probe` reference-stability proxy; ARM 3 (gated behind
+  `HUD_PERF_BUDGET_TOUR=1`, the perf row, skipped in bare `npm test`) reads a `perf_tour`
+  artifact + the same baseline and asserts `frameP95 <= reference`, skip-rate >= floor, and
+  the FCT pool stays cap-bounded. perf_tour's mobile profile now boots (landscape 844x390 +
+  `#mobile-preflight` dismissal). The first all-together run held with no per-frame regression.
 - **Two controllers stay separate.** HUD tier knobs read the STATIC graphics preset via
   `src/game/ui_effects_profile.ts` (the `data-fx-level` stamp), NEVER `governor.state()`;
   `Hud.fxTier()` resolves the static stamp through `coerceFxTier`. This is the perf half of

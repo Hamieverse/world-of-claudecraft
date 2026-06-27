@@ -136,8 +136,13 @@ this repo already has, do not invent new ones:
   INSTANCE-PARAMETERIZED (take a descriptor/id, no hardcoded element id). Reuse a FAMILY
   before bespoke: a unit-style frame is a `UnitFramePainter`; an extra action bar a new
   `ActionBarPainter(descriptor)`. Guarded by the UI-purity scan in
-  `tests/architecture.test.ts`. Full recipe + the a11y / perf / token / canvas contracts:
-  `src/ui/CLAUDE.md` + `src/styles/CLAUDE.md`.
+  `tests/architecture.test.ts`, which is COMPLETENESS-checked: every on-disk
+  `*_view`/`*_core` under `src/ui` (and `src/render`) must be in the `UI_PURE_CORES`
+  (resp. `RENDER_PURE_CORES`) allowlist, so a new core that forgets to register fails the
+  test. The standing per-frame perf floor is `tests/hud_perf_budget.test.ts`; the cold-window
+  and per-frame DOM-id / write guards live in `tests/client_shell.test.ts` (they point at the
+  painter that owns each element now, not `hud.ts`). Full recipe + the a11y / perf / token /
+  canvas contracts: `src/ui/CLAUDE.md` + `src/styles/CLAUDE.md`.
 - New visual system: a new `src/render/<thing>.ts` the renderer calls, not a method bank on `renderer.ts`.
 - New game content (mob/quest/item/ability/zone): a declarative record in
   `src/sim/content/`, merged by `data.ts`, never a content table inline in `sim.ts`.
