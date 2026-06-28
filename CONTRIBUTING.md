@@ -1,6 +1,6 @@
 <div align="center">
 
-**English** · [Español](docs/i18n/CONTRIBUTING.es.md) · [Español (España)](docs/i18n/CONTRIBUTING.es_ES.md) · [Français](docs/i18n/CONTRIBUTING.fr_FR.md) · [Français (Canada)](docs/i18n/CONTRIBUTING.fr_CA.md) · [Italiano](docs/i18n/CONTRIBUTING.it_IT.md) · [Deutsch](docs/i18n/CONTRIBUTING.de_DE.md) · [简体中文](docs/i18n/CONTRIBUTING.zh_CN.md) · [繁體中文](docs/i18n/CONTRIBUTING.zh_TW.md) · [한국어](docs/i18n/CONTRIBUTING.ko_KR.md) · [日本語](docs/i18n/CONTRIBUTING.ja_JP.md) · [Português (Brasil)](docs/i18n/CONTRIBUTING.pt_BR.md) · [Русский](docs/i18n/CONTRIBUTING.ru_RU.md)
+**English** · [Español](docs/i18n/CONTRIBUTING.es.md) · [Español (España)](docs/i18n/CONTRIBUTING.es_ES.md) · [Français](docs/i18n/CONTRIBUTING.fr_FR.md) · [Français (Canada)](docs/i18n/CONTRIBUTING.fr_CA.md) · [Italiano](docs/i18n/CONTRIBUTING.it_IT.md) · [Deutsch](docs/i18n/CONTRIBUTING.de_DE.md) · [简体中文](docs/i18n/CONTRIBUTING.zh_CN.md) · [繁體中文](docs/i18n/CONTRIBUTING.zh_TW.md) · [한국어](docs/i18n/CONTRIBUTING.ko_KR.md) · [日本語](docs/i18n/CONTRIBUTING.ja_JP.md) · [Português (Brasil)](docs/i18n/CONTRIBUTING.pt_BR.md) · [Русский](docs/i18n/CONTRIBUTING.ru_RU.md) · [Nederlands](docs/i18n/CONTRIBUTING.nl_NL.md) · [Polski](docs/i18n/CONTRIBUTING.pl_PL.md) · [Bahasa Indonesia](docs/i18n/CONTRIBUTING.id_ID.md) · [Türkçe](docs/i18n/CONTRIBUTING.tr_TR.md) · [Svenska](docs/i18n/CONTRIBUTING.sv_SE.md) · [Tiếng Việt](docs/i18n/CONTRIBUTING.vi_VN.md) · [Dansk](docs/i18n/CONTRIBUTING.da_DK.md)
 
 </div>
 
