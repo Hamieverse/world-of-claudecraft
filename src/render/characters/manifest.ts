@@ -211,6 +211,27 @@ const CHICKEN_COW: ClipMap = {
   jump: 'Jump',
 };
 
+// Hamieverse hero rig (hamie.glb): custom Blender rig with its own clip names,
+// sword baked into the rig (no handslot attach). No cast/sit/swim clips, those
+// states fall back gracefully via baseAction().
+const HAMIE: ClipMap = {
+  idle: 'Idle',
+  walk: 'Walk',
+  run: 'Run',
+  attack: ['Attack', 'Attack2', 'Attack3'],
+  hit: ['Hit'],
+  death: 'KO',
+  jump: 'Jump',
+  flourish: 'Taunt',
+  emote: {
+    wave: { clips: ['Taunt'] },
+    cheer: { clips: ['Taunt'], repeats: 2 },
+    dance: { clips: ['Taunt', 'Block'], repeats: 2 },
+    flex: { clips: ['Block'] },
+    roar: { clips: ['Attack3'] },
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Asset urls
 // ---------------------------------------------------------------------------
@@ -241,6 +262,24 @@ const LOW_URL_ALIAS: Record<string, string> = {
 };
 
 const HUMANOID_H = 2.6;
+
+/** Dev preview: a `?hamie` URL param routes every player entity to the
+ *  Hamieverse hero model (player_hamie); `?hamie=poly` picks the low-poly
+ *  flat-shaded variant (player_hamie_poly, built by scripts/make_hamie_poly.mjs).
+ *  Guarded for Node test imports, where `location` does not exist and the
+ *  preview is always off. */
+const HAMIE_PARAM =
+  typeof location !== 'undefined' ? new URLSearchParams(location.search).get('hamie') : null;
+const HAMIE_PREVIEW = HAMIE_PARAM !== null;
+const HAMIE_POLY = HAMIE_PARAM === 'poly';
+
+/** Visual-key override while the ?hamie preview is active (null otherwise), so
+ *  surfaces like the character-creation turntable show the same model the
+ *  world will render. */
+export function hamiePreviewKey(): string | null {
+  if (!HAMIE_PREVIEW) return null;
+  return HAMIE_POLY ? 'player_hamie_poly' : 'player_hamie';
+}
 
 const SKINS_DIR = 'textures/skins';
 
@@ -448,6 +487,24 @@ export const VISUALS: Record<string, VisualDef> = {
     // resolve like any other class. Lazy-loaded; see preloadMechAssets().
     clips: kaykit(['1H_Melee_Attack_Chop']),
     lazyPreload: true,
+  },
+
+  // -- Hamieverse hero preview (dev-only route, see HAMIE_PREVIEW) ----------
+  player_hamie: {
+    url: `${PLAYERS}/hamie.glb`,
+    height: HUMANOID_H,
+    clips: HAMIE,
+    // sword is part of the rig; no attach/weaponSlots, gear swaps are ignored.
+    // Preloaded only when the ?hamie preview is active so the 11 MB GLB never
+    // costs a normal client's boot.
+    lazyPreload: !(HAMIE_PREVIEW && !HAMIE_POLY),
+  },
+  // low-poly flat-shaded variant matched to the KayKit class look (?hamie=poly)
+  player_hamie_poly: {
+    url: `${PLAYERS}/hamie_poly.glb`,
+    height: HUMANOID_H,
+    clips: HAMIE,
+    lazyPreload: !HAMIE_POLY,
   },
 
   // -- forms ---------------------------------------------------------------
@@ -902,6 +959,7 @@ const NPC_KEYS: Record<string, string> = {
 
 export function visualKeyFor(e: Entity): string {
   if (e.kind === 'player') {
+    if (HAMIE_PREVIEW) return HAMIE_POLY ? 'player_hamie_poly' : 'player_hamie';
     if (e.skinCatalog === 'mech') return 'player_mech';
     return VISUALS[`player_${e.templateId}`] ? `player_${e.templateId}` : 'player_warrior';
   }

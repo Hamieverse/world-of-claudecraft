@@ -54,9 +54,11 @@ describe('held weapon models', () => {
 
   // Every player class swaps its held mainhand to the equipped weapon, EXCEPT the
   // hunter, which keeps its crossbow regardless of the melee weapon equipped.
+  // Cosmetic bodies (mech, hamie) are not classes: their weapon is part of the
+  // model, so they are excluded like the mech always was.
   it('all player classes swap the mainhand except the hunter', () => {
     const players = Object.keys(VISUALS).filter(
-      (k) => k.startsWith('player_') && k !== 'player_mech',
+      (k) => k.startsWith('player_') && k !== 'player_mech' && !k.startsWith('player_hamie'),
     );
     expect(players).toContain('player_hunter');
     for (const key of players) {

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CLASSES } from '../../sim/data';
 import type { PlayerClass } from '../../sim/types';
 import { trackWebGLContext } from '../context_release';
+import { hamiePreviewKey } from './manifest';
 import { CharacterVisual } from './visual';
 
 const PREVIEW_ANIM_STATE = {
@@ -92,6 +93,13 @@ export class CharacterPreview {
    *  to default to the class start weapon (so the creation turntable matches the
    *  freshly created character in-world). */
   setClass(cls: PlayerClass, weaponItemId?: string | null): void {
+    // ?hamie preview: the turntable shows the model the world will render for
+    // any class (the Hamie rig ships its own sword, so no weapon attach).
+    const hamie = hamiePreviewKey();
+    if (hamie) {
+      this.setVisualKey(hamie);
+      return;
+    }
     const weapon = weaponItemId !== undefined ? weaponItemId : (CLASSES[cls].startWeapon ?? null);
     this.setVisualKey(`player_${cls}`, weapon);
   }

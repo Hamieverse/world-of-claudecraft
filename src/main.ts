@@ -5499,7 +5499,11 @@ function wireStartScreens(): void {
       else handleOnlineSelect();
     });
 
-    applyServerMode('online');
+    // ?mode=offline preselects the instant local world, so Play goes straight
+    // to the offline character panel (demo / E2E convenience).
+    applyServerMode(
+      new URLSearchParams(location.search).get('mode') === 'offline' ? 'offline' : 'online',
+    );
   }
 
   btnStartOffline.addEventListener('click', () => {
@@ -6289,6 +6293,10 @@ function wireStartScreens(): void {
     const canvas = $('#char-preview-canvas') as HTMLCanvasElement | null;
     if (container && canvas) {
       characterPreview = new CharacterPreview(container, canvas);
+      // The canvas ships inside the online panel's markup; if a different panel
+      // is already open when assets resolve (fast reload, offline select),
+      // adopt the canvas into it, else the turntable renders into a hidden box.
+      characterPreview.setContainer(container);
       const selSelector =
         activePanelId === '#offline-select'
           ? '#offline-select .mini-class.sel'
